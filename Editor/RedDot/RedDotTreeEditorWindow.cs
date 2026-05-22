@@ -9,7 +9,7 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace JulyGF.Editor.RedDot
+namespace JulyGame.Editor.RedDot
 {
     /// <summary>
     /// 红点树可视化编辑器窗口 (UI Toolkit 版本)
@@ -43,7 +43,7 @@ namespace JulyGF.Editor.RedDot
         private TextField _newModuleField;
         private EnumField _newTypeField;
 
-        [MenuItem("JulyGF/红点树编辑器", false, 100)]
+        [MenuItem("JulyGame/红点树编辑器", false, 100)]
         public static void ShowWindow()
         {
             var window = GetWindow<RedDotTreeEditorWindow>();
@@ -961,7 +961,6 @@ namespace JulyGF.Editor.RedDot
             sb.AppendLine($"// 节点总数: {_config.nodes.Count}");
             sb.AppendLine("// =============================================================================");
             sb.AppendLine();
-            sb.AppendLine("using JulyCore;");
             sb.AppendLine("using JulyGame.RedDot;");
             sb.AppendLine();
             sb.AppendLine($"namespace {_config.codeNamespace}");
@@ -1012,9 +1011,9 @@ namespace JulyGF.Editor.RedDot
             sb.AppendLine("        #region Registration");
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
-            sb.AppendLine("        /// 注册所有红点节点到框架");
+            sb.AppendLine("        /// 注册所有红点节点（在 RedDotSystemBase 子类的 OnConfigure 中调用）");
             sb.AppendLine("        /// </summary>");
-            sb.AppendLine("        public static void RegisterAll()");
+            sb.AppendLine("        public static void RegisterAll(RedDotSystemBase system)");
             sb.AppendLine("        {");
 
             var roots = _config.GetRootNodes();
@@ -1064,11 +1063,11 @@ namespace JulyGF.Editor.RedDot
 
             if (string.IsNullOrEmpty(node.parentKey))
             {
-                sb.AppendLine($"{indent}GF.RedDot.Register({keyConst}, null, {typeStr});");
+                sb.AppendLine($"{indent}system.RegisterNode({keyConst}, null, {typeStr});");
             }
             else
             {
-                sb.AppendLine($"{indent}GF.RedDot.Register({keyConst}, {parentConst}, {typeStr});");
+                sb.AppendLine($"{indent}system.RegisterNode({keyConst}, {parentConst}, {typeStr});");
             }
 
             var children = _config.GetChildren(node.key);

@@ -18,7 +18,7 @@ namespace JulyGame.Task
         public float expireCheckIntervalSeconds = 60f;
     }
 
-    public class TaskSystem : GameSystemBase, IUpdatableSystem, ITaskHandlerContext
+    public abstract class TaskSystemBase : GameSystemBase, IUpdatableSystem, ITaskHandlerContext
     {
         public const string SaveKey = "task_progress";
 
@@ -33,19 +33,22 @@ namespace JulyGame.Task
 
         private float _expireCheckAccumulator;
 
-        protected override void OnInitialize()
+        protected sealed override void OnInitialize()
         {
             _store = GetStore<TaskStore>();
         }
 
-        protected override void OnStart()
+        protected sealed override void OnStart()
         {
+            OnConfigure();
             _resetScheduler?.RegisterScheduledResets(_timeCapability, ResetTasksByType);
             TryUnlockAllTasks();
         }
 
-        protected override void OnShutdown()
+        protected sealed override void OnShutdown()
         {
+            OnDispose();
+
             _resetScheduler?.UnregisterScheduledResets(_timeCapability);
 
             foreach (var handler in _typeHandlers.Values)
@@ -59,6 +62,9 @@ namespace JulyGame.Task
             _unlockCheckHandler = null;
             _resetScheduler = null;
         }
+
+        protected abstract void OnConfigure();
+        protected virtual void OnDispose() { }
 
         public void OnUpdate(float deltaTime)
         {

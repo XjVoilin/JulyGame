@@ -3,7 +3,6 @@ using System.Linq;
 using Cysharp.Threading.Tasks;
 using JulyArch;
 using JulyCore;
-using JulyCore.Core;
 using JulyCore.Data.Save;
 
 namespace JulyGame.Activity
@@ -21,6 +20,7 @@ namespace JulyGame.Activity
     /// </summary>
     public class ActivityStore : StoreBase<ActivityStoreData>, IAsyncLoadable
     {
+        private const string SaveKey = "activity_data";
         private ActivityRuntimeData _saveData;
 
         public IReadOnlyDictionary<string, ActivityDefinition> Definitions => Data.Definitions;
@@ -85,7 +85,7 @@ namespace JulyGame.Activity
 
             Data.Records[record.ActivityId] = record;
             SyncToSaveData();
-            GF.Save.MarkDirty(Frameworkconst.ActivitySaveKey);
+            GF.Save.MarkDirty(SaveKey);
             TraceModify();
         }
 
@@ -96,7 +96,7 @@ namespace JulyGame.Activity
             if (Data.OpenedActivityIds.Add(activityId))
             {
                 SyncToSaveData();
-                GF.Save.MarkDirty(Frameworkconst.ActivitySaveKey);
+                GF.Save.MarkDirty(SaveKey);
                 TraceModify();
             }
         }
@@ -120,20 +120,20 @@ namespace JulyGame.Activity
             if (!changed) return;
 
             SyncToSaveData();
-            GF.Save.MarkDirty(Frameworkconst.ActivitySaveKey);
+            GF.Save.MarkDirty(SaveKey);
             TraceModify();
         }
 
         async UniTask IAsyncLoadable.OnLoadAsync()
         {
             Data = new ActivityStoreData();
-            _saveData = await GF.Save.LoadAndRegisterAsync<ActivityRuntimeData>(Frameworkconst.ActivitySaveKey);
+            _saveData = await GF.Save.LoadAndRegisterAsync<ActivityRuntimeData>(SaveKey);
             SyncFromSaveData();
         }
 
         protected override void OnShutdown()
         {
-            GF.Save.Unregister(Frameworkconst.ActivitySaveKey);
+            GF.Save.Unregister(SaveKey);
             _saveData = null;
         }
 

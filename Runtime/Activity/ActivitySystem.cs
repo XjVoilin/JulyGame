@@ -5,10 +5,7 @@ using JulyCore;
 
 namespace JulyGame.Activity
 {
-    /// <summary>
-    /// 活动系统：注册活动、计算时间状态、检测开关转换并发布事件。
-    /// </summary>
-    public class ActivitySystem : GameSystemBase, IUpdatableSystem
+    public abstract class ActivitySystemBase : GameSystemBase, IUpdatableSystem
     {
         private const float StateCheckInterval = 60f;
 
@@ -17,18 +14,27 @@ namespace JulyGame.Activity
         private float _lastStateCheckTime;
         private bool _isReady;
 
-        protected override void OnInitialize()
+        protected sealed override void OnInitialize()
         {
             _store = GetStore<ActivityStore>();
             _isReady = false;
             _lastStateCheckTime = 0f;
         }
 
-        protected override void OnShutdown()
+        protected sealed override void OnStart()
         {
+            OnConfigure();
+        }
+
+        protected sealed override void OnShutdown()
+        {
+            OnDispose();
             _newlyOpenedIds.Clear();
             _isReady = false;
         }
+
+        protected abstract void OnConfigure();
+        protected virtual void OnDispose() { }
 
         public void OnUpdate(float deltaTime)
         {

@@ -7,26 +7,36 @@ namespace JulyGame.ABTest
     public delegate bool ConditionChecker(EntryCondition condition, string userId, Dictionary<string, string> context);
     public delegate string CustomAllocator(Experiment experiment, string userId);
 
-    public class ABTestSystem : GameSystemBase
+    public abstract class ABTestSystemBase : GameSystemBase
     {
         private ABTestStore _store;
         private readonly Dictionary<string, ConditionChecker> _conditionCheckers = new();
         private CustomAllocator _customAllocator;
         private readonly object _lock = new();
 
-        protected override void OnInitialize()
+        protected sealed override void OnInitialize()
         {
             _store = GetStore<ABTestStore>();
             RegisterDefaultConditionCheckers();
         }
 
-        protected override void OnShutdown()
+        protected sealed override void OnStart()
         {
+            OnConfigure();
+        }
+
+        protected sealed override void OnShutdown()
+        {
+            OnDispose();
+
             lock (_lock)
                 _conditionCheckers.Clear();
 
             _customAllocator = null;
         }
+
+        protected abstract void OnConfigure();
+        protected virtual void OnDispose() { }
 
         #region User settings
 

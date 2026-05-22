@@ -6,7 +6,7 @@ using JulyCore;
 
 namespace JulyGame.Guide
 {
-    public class GuideSystem : GameSystemBase
+    public abstract class GuideSystemBase : GameSystemBase
     {
         private const string SaveKey = "guide_progress";
 
@@ -20,14 +20,21 @@ namespace JulyGame.Guide
         private IGuideFlowHandler _activeHandler;
         private bool _isFlowActive;
 
-        protected override void OnInitialize()
+        protected sealed override void OnInitialize()
         {
             _store = GetStore<GuideStore>();
-            LoadProgressAsync().Forget();
         }
 
-        protected override void OnShutdown()
+        protected sealed override void OnStart()
         {
+            LoadProgressAsync().Forget();
+            OnConfigure();
+        }
+
+        protected sealed override void OnShutdown()
+        {
+            OnDispose();
+
             SaveProgressAsync().Forget();
 
             foreach (var handler in _flowHandlers.Values)
@@ -42,6 +49,9 @@ namespace JulyGame.Guide
             _dataProvider = null;
             _saveData = null;
         }
+
+        protected abstract void OnConfigure();
+        protected virtual void OnDispose() { }
 
         #region Injection
 

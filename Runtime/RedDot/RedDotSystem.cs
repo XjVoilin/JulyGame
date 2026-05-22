@@ -4,28 +4,32 @@ using JulyArch;
 
 namespace JulyGame.RedDot
 {
-    public class RedDotSystem : GameSystemBase
+    public abstract class RedDotSystemBase : GameSystemBase
     {
-        public static RedDotSystem Instance { get; internal set; }
-
         private RedDotStore _store;
         private readonly Dictionary<string, RedDotValueCalculator> _calculators = new();
         private readonly object _lock = new();
 
-        protected override void OnInitialize()
+        protected sealed override void OnInitialize()
         {
-            Instance = this;
             _store = GetStore<RedDotStore>();
         }
 
-        protected override void OnShutdown()
+        protected sealed override void OnStart()
         {
-            if (Instance == this)
-                Instance = null;
+            OnConfigure();
+        }
+
+        protected sealed override void OnShutdown()
+        {
+            OnDispose();
 
             lock (_lock)
                 _calculators.Clear();
         }
+
+        protected abstract void OnConfigure();
+        protected virtual void OnDispose() { }
 
         #region Node registration
 

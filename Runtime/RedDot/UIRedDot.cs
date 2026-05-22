@@ -1,3 +1,4 @@
+using JulyArch;
 using TMPro;
 using UnityEngine;
 
@@ -8,7 +9,7 @@ namespace JulyGame.RedDot
     /// 使用方式：将红点 Prefab 拖到目标节点下 → Inspector 选 Key → 完成。
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class UIRedDot : MonoBehaviour
+    public sealed class UIRedDot : MonoBehaviour, ICanGetSystem
     {
         private const string NumberOverflow = "99+";
 
@@ -29,11 +30,14 @@ namespace JulyGame.RedDot
         public bool IsVisible => _activeVisual != null && _activeVisual.activeSelf;
         public string Key => _key;
 
+        public IArchContext GetArchitecture() => GameArch.Context;
+
         private void OnEnable()
         {
             if (string.IsNullOrEmpty(_key)) return;
 
-            RedDotSystem.Instance?.OnKeyChanged(_key, OnRedDotChanged, this);
+            var system = this.GetSystem<RedDotSystemBase>();
+            system?.OnKeyChanged(_key, OnRedDotChanged, this);
             Refresh();
         }
 
@@ -62,7 +66,7 @@ namespace JulyGame.RedDot
                 return;
             }
 
-            var system = RedDotSystem.Instance;
+            var system = this.GetSystem<RedDotSystemBase>();
             if (system == null)
             {
                 HideAll();
