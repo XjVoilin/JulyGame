@@ -7,8 +7,8 @@ namespace JulyGame.RedDot
     public abstract class RedDotSystemBase : GameSystemBase
     {
         private RedDotStore _store;
+        private RedDotHandler[] _handlers;
         private readonly Dictionary<string, RedDotValueCalculator> _calculators = new();
-        private readonly object _lock = new();
 
         protected sealed override void OnInitialize()
         {
@@ -17,19 +17,31 @@ namespace JulyGame.RedDot
 
         protected sealed override void OnStart()
         {
-            OnConfigure();
+            OnRegisterNodes();
+            _handlers = OnCreateHandlers();
+            if (_handlers != null)
+                foreach (var h in _handlers)
+                    h.Attach(this);
         }
 
         protected sealed override void OnShutdown()
         {
-            OnDispose();
-
-            lock (_lock)
-                _calculators.Clear();
+            if (_handlers != null)
+                foreach (var h in _handlers)
+                    h.Detach();
+            _handlers = null;
+            _calculators.Clear();
         }
 
-        protected abstract void OnConfigure();
-        protected virtual void OnDispose() { }
+        /// <summary>
+        /// 注册红点节点树结构（由编辑器生成的 RegisterAll 或手动注册）
+        /// </summary>
+        protected abstract void OnRegisterNodes();
+
+        /// <summary>
+        /// 创建并返回红点计算器绑定列表（可选）
+        /// </summary>
+        protected virtual RedDotHandler[] OnCreateHandlers() => null;
 
         #region Node registration
 
@@ -41,34 +53,6 @@ namespace JulyGame.RedDot
         public void RegisterNodes(IEnumerable<(string Key, string ParentKey, RedDotType Type)> nodes)
         {
             _store.RegisterNodes(nodes);
-        }
-
-        public bool UnregisterNode(string key)
-        {
-            lock (_lock)
-                _calculators.Remove(key);
-
-            return _store.UnregisterNode(key);
-        }
-
-        public void ClearAllNodes()
-        {
-            lock (_lock)
-                _calculators.Clear();
-
-            _store.ClearAllNodes();
-        }
-
-        public void LoadFromConfig(RedDotNodeConfig config)
-        {
-            if (config == null) return;
-            _store.RegisterNode(config.Key, config.ParentKey, config.Type);
-        }
-
-        public void LoadFromConfigTable(RedDotConfigTable configTable)
-        {
-            if (configTable?.Nodes == null) return;
-            _store.RegisterNodes(configTable.ToRegistrations());
         }
 
         #endregion
@@ -111,21 +95,13 @@ namespace JulyGame.RedDot
             if (node == null || !node.IsLeaf)
                 return;
 
-            lock (_lock)
-                _calculators[key] = calculator;
-        }
-
-        public void SetCalculator(string key, Func<int> calculator)
-        {
-            SetCalculator(key, _ => calculator());
+            _calculators[key] = calculator;
         }
 
         public void RemoveCalculator(string key)
         {
             if (string.IsNullOrEmpty(key)) return;
-
-            lock (_lock)
-                _calculators.Remove(key);
+            _calculators.Remove(key);
         }
 
         public void Refresh(string key)
@@ -180,17 +156,6 @@ namespace JulyGame.RedDot
 
         #endregion
 
-        #region Persistence
-
-        public Dictionary<string, int> ExportState() => _store.ExportLeafCounts();
-
-        public void ImportState(Dictionary<string, int> stateData)
-        {
-            _store.ImportLeafCounts(stateData);
-        }
-
-        #endregion
-
         #region Event subscription (for MonoBehaviour UI)
 
         public void OnKeyChanged(string key, Action<RedDotChangedEvent> handler, object target)
@@ -213,12 +178,8 @@ namespace JulyGame.RedDot
 
         private List<RedDotChangeInfo> TriggerCalculator(string key)
         {
-            RedDotValueCalculator calculator;
-            lock (_lock)
-            {
-                if (!_calculators.TryGetValue(key, out calculator))
-                    return new List<RedDotChangeInfo>();
-            }
+            if (!_calculators.TryGetValue(key, out var calculator))
+                return new List<RedDotChangeInfo>();
 
             try
             {
@@ -232,15 +193,11 @@ namespace JulyGame.RedDot
 
         private List<RedDotChangeInfo> TriggerAllCalculators()
         {
-            Dictionary<string, RedDotValueCalculator> calculatorsCopy;
-            lock (_lock)
-                calculatorsCopy = new Dictionary<string, RedDotValueCalculator>(_calculators);
-
-            if (calculatorsCopy.Count == 0)
+            if (_calculators.Count == 0)
                 return new List<RedDotChangeInfo>();
 
-            var counts = new Dictionary<string, int>(calculatorsCopy.Count);
-            foreach (var kvp in calculatorsCopy)
+            var counts = new Dictionary<string, int>(_calculators.Count);
+            foreach (var kvp in _calculators)
             {
                 try
                 {

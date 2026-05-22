@@ -81,33 +81,6 @@ namespace JulyGame.RedDot
             }
         }
 
-        public bool UnregisterNode(string key)
-        {
-            if (string.IsNullOrEmpty(key) || !Data.Nodes.TryGetValue(key, out var node))
-                return false;
-
-            if (node.ChildKeys != null)
-            {
-                foreach (var childKey in node.ChildKeys.ToList())
-                    UnregisterNode(childKey);
-            }
-
-            if (!string.IsNullOrEmpty(node.ParentKey) && Data.Nodes.TryGetValue(node.ParentKey, out var parentNode))
-            {
-                parentNode.ChildKeys.Remove(key);
-                InvalidateCacheUpward(node.ParentKey);
-            }
-
-            Data.Nodes.Remove(key);
-            TraceModify();
-            return true;
-        }
-
-        public void ClearAllNodes()
-        {
-            Data.Nodes.Clear();
-            TraceModify();
-        }
 
         #endregion
 
@@ -296,37 +269,6 @@ namespace JulyGame.RedDot
 
         #endregion
 
-        #region Import / export
-
-        public Dictionary<string, int> ExportLeafCounts()
-        {
-            var result = new Dictionary<string, int>();
-            foreach (var node in Data.Nodes.Values)
-            {
-                if (node.IsLeaf && node.Count > 0)
-                    result[node.Key] = node.Count;
-            }
-
-            return result;
-        }
-
-        public void ImportLeafCounts(Dictionary<string, int> stateData)
-        {
-            if (stateData == null) return;
-
-            foreach (var node in Data.Nodes.Values)
-            {
-                if (!node.IsLeaf) continue;
-                node.Count = stateData.TryGetValue(node.Key, out var count) ? count : 0;
-            }
-
-            foreach (var root in Data.Nodes.Values.Where(n => string.IsNullOrEmpty(n.ParentKey)))
-                RecalculateInternal(root);
-
-            TraceModify();
-        }
-
-        #endregion
 
         #region Private helpers
 
