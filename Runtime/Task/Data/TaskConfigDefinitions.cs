@@ -11,7 +11,7 @@ namespace JulyGame.Task
     {
         public string ConditionId { get; set; }
         public TaskConditionType Type { get; set; }
-        public string Param { get; set; }
+        public int Param { get; set; }
         public int TargetValue { get; set; }
 
         public TaskCondition ToCondition()

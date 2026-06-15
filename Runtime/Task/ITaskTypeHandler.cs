@@ -13,7 +13,7 @@ namespace JulyGame.Task
     public interface ITaskHandlerContext
     {
         JulyEvents.IEventBus EventBus { get; }
-        void UpdateProgress(TaskConditionType conditionType, string param, int delta = 1);
+        void UpdateProgress(TaskConditionType conditionType, int param, int delta = 1);
         void UpdateTaskProgress(string taskId, string conditionId, int value);
         TaskData GetTask(string taskId);
     }

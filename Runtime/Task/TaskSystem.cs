@@ -213,7 +213,7 @@ namespace JulyGame.Task
             return count;
         }
 
-        public void UpdateProgress(TaskConditionType conditionType, string param, int delta = 1)
+        public void UpdateProgress(TaskConditionType conditionType, int param, int delta = 1)
         {
             foreach (var (taskId, conditionId) in _store.QueryByCondition(conditionType, param))
             {
@@ -224,7 +224,7 @@ namespace JulyGame.Task
             }
         }
 
-        public void UpdateReachProgress(string param, int value)
+        public void UpdateReachProgress(int param, int value)
         {
             foreach (var (taskId, conditionId) in _store.QueryByCondition(TaskConditionType.Reach, param))
             {
@@ -363,7 +363,7 @@ namespace JulyGame.Task
 
         JulyEvents.IEventBus ITaskHandlerContext.EventBus => GetArchitecture().Event;
 
-        void ITaskHandlerContext.UpdateProgress(TaskConditionType conditionType, string param, int delta)
+        void ITaskHandlerContext.UpdateProgress(TaskConditionType conditionType, int param, int delta)
         {
             UpdateProgress(conditionType, param, delta);
         }

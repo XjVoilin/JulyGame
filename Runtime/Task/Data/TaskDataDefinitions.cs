@@ -96,22 +96,14 @@ namespace JulyGame.Task
     {
         /// <summary>
         /// 累计计数（增量更新）
-        /// 每次事件触发时累加数值，适用于：
-        /// - 击杀怪物：Param = "kill_enemy_001"，每次击杀+1
-        /// - 收集道具：Param = "collect_item_sword"，每次收集+1
-        /// - 通关关卡：Param = "complete_stage_001"，每次通关+1
-        /// - 其他需要累计计数的场景
+        /// 每次事件触发时累加数值。Param 为业务层定义的 int 常量或枚举值。
         /// </summary>
         Accumulate,
 
         /// <summary>
         /// 达到数值（绝对值更新）
-        /// 直接检查当前数值是否达到目标，适用于：
-        /// - 等级达到：Param = "player_level"，直接检查当前等级
-        /// - 战力达到：Param = "player_power"，直接检查当前战力
-        /// - 金币达到：Param = "player_gold"，直接检查当前金币数
-        /// - 其他需要检查当前数值的场景
-        /// 注意：使用此类型时，应调用UpdateTaskProgress设置绝对值，而不是增量更新
+        /// 直接检查当前数值是否达到目标。Param 为业务层定义的 int 常量或枚举值。
+        /// 注意：使用此类型时，应调用 UpdateReachProgress 或 UpdateTaskProgress 设置绝对值。
         /// </summary>
         Reach
     }
@@ -133,9 +125,9 @@ namespace JulyGame.Task
         public TaskConditionType Type { get; set; }
 
         /// <summary>
-        /// 条件参数（如：击杀的怪物类型ID）
+        /// 条件参数（由业务层定义的 int 常量或枚举值）
         /// </summary>
-        public string Param { get; set; }
+        public int Param { get; set; }
 
         /// <summary>
         /// 目标数值

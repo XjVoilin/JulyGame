@@ -8,7 +8,7 @@ namespace JulyGame.Task
     public class TaskStoreData
     {
         public Dictionary<string, TaskData> Tasks = new();
-        public Dictionary<(TaskConditionType, string), List<(string taskId, string conditionId)>> ConditionIndex = new();
+        public Dictionary<(TaskConditionType, int), List<(string taskId, string conditionId)>> ConditionIndex = new();
     }
 
     public class TaskStore : StoreBase<TaskStoreData>
@@ -47,9 +47,8 @@ namespace JulyGame.Task
         }
 
         public IReadOnlyList<(string taskId, string conditionId)> QueryByCondition(
-            TaskConditionType conditionType, string param)
+            TaskConditionType conditionType, int param)
         {
-            if (string.IsNullOrEmpty(param)) return Array.Empty<(string, string)>();
             if (!Data.ConditionIndex.TryGetValue((conditionType, param), out var matches))
                 return Array.Empty<(string, string)>();
             return matches;
@@ -146,8 +145,6 @@ namespace JulyGame.Task
 
             foreach (var condition in task.Conditions)
             {
-                if (string.IsNullOrEmpty(condition.Param)) continue;
-
                 var key = (condition.Type, condition.Param);
                 if (!Data.ConditionIndex.TryGetValue(key, out var list))
                 {
