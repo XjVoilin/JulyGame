@@ -1,6 +1,6 @@
 {
   "name": "com.july.game",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "displayName": "JulyGame",
   "description": "跨项目复用的游戏业务系统（活动、任务、引导、红点、AB测试），基于 JulyArch 的 Store + System 模式",
   "unity": "2021.3",
