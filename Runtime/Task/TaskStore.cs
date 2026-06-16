@@ -7,7 +7,7 @@ namespace JulyGame.Task
     public class TaskStoreData
     {
         public readonly Dictionary<int, TaskData> Tasks = new();
-        public readonly Dictionary<ETaskState, List<int>> StateIndex = new()
+        public readonly Dictionary<ETaskState, List<int>> TaskIdsByState = new()
         {
             { ETaskState.Locked, new List<int>() },
             { ETaskState.InProgress, new List<int>() },
@@ -28,7 +28,7 @@ namespace JulyGame.Task
 
         public IReadOnlyList<int> GetIdsByState(ETaskState state)
         {
-            return Data.StateIndex.TryGetValue(state, out var list) ? list : Array.Empty<int>();
+            return Data.TaskIdsByState.TryGetValue(state, out var list) ? list : Array.Empty<int>();
         }
 
         public long GetResetBoundary(int taskId)
@@ -41,7 +41,7 @@ namespace JulyGame.Task
         {
             if (task == null) return;
             Data.Tasks[task.TaskId] = task;
-            AddToStateIndex(task.TaskId, task.State);
+            AddToTaskIdsByState(task.TaskId, task.State);
             TraceModify();
         }
 
@@ -52,9 +52,9 @@ namespace JulyGame.Task
             var oldState = task.State;
             if (oldState == newState) return;
 
-            RemoveFromStateIndex(taskId, oldState);
+            RemoveFromTaskIdsByState(taskId, oldState);
             task.State = newState;
-            AddToStateIndex(taskId, newState);
+            AddToTaskIdsByState(taskId, newState);
             TraceModify();
         }
 
@@ -64,49 +64,50 @@ namespace JulyGame.Task
             TraceModify();
         }
 
-        internal void ImportStates(Dictionary<int, ETaskState> states)
+        internal void ImportStates(List<TaskStateSave> states)
         {
             if (states == null) return;
 
-            foreach (var pair in states)
+            foreach (var s in states)
             {
-                if (!Data.Tasks.TryGetValue(pair.Key, out var task)) continue;
+                if (!Data.Tasks.TryGetValue(s.taskId, out var task)) continue;
 
+                var newState = (ETaskState)s.state;
                 var oldState = task.State;
-                if (oldState == pair.Value) continue;
+                if (oldState == newState) continue;
 
-                RemoveFromStateIndex(pair.Key, oldState);
-                task.State = pair.Value;
-                AddToStateIndex(pair.Key, pair.Value);
+                RemoveFromTaskIdsByState(s.taskId, oldState);
+                task.State = newState;
+                AddToTaskIdsByState(s.taskId, newState);
             }
 
             TraceModify();
         }
 
-        internal void ImportResetBoundaries(Dictionary<int, long> boundaries)
+        internal void ImportResetBoundaries(List<TaskBoundarySave> boundaries)
         {
             if (boundaries == null) return;
 
-            foreach (var pair in boundaries)
-                Data.ResetBoundaryTicks[pair.Key] = pair.Value;
+            foreach (var b in boundaries)
+                Data.ResetBoundaryTicks[b.taskId] = b.ticks;
 
             TraceModify();
         }
 
-        private void AddToStateIndex(int taskId, ETaskState state)
+        private void AddToTaskIdsByState(int taskId, ETaskState state)
         {
-            if (!Data.StateIndex.TryGetValue(state, out var list))
+            if (!Data.TaskIdsByState.TryGetValue(state, out var list))
             {
                 list = new List<int>();
-                Data.StateIndex[state] = list;
+                Data.TaskIdsByState[state] = list;
             }
 
             list.Add(taskId);
         }
 
-        private void RemoveFromStateIndex(int taskId, ETaskState state)
+        private void RemoveFromTaskIdsByState(int taskId, ETaskState state)
         {
-            if (Data.StateIndex.TryGetValue(state, out var list))
+            if (Data.TaskIdsByState.TryGetValue(state, out var list))
                 list.Remove(taskId);
         }
     }

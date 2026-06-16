@@ -70,13 +70,12 @@ namespace JulyGame.Task
             var task = _store.Get(id);
             if (task == null || task.State != ETaskState.Completed) return false;
 
-            var oldState = task.State;
             _store.SetState(id, ETaskState.InProgress);
             CacheConditionProgress(task);
 
             Publish(new TaskStateChangedEvent
             {
-                TaskId = id, OldState = oldState,
+                TaskId = id, OldState = ETaskState.Completed,
                 NewState = ETaskState.InProgress, TaskData = task
             });
             Publish(new TaskResetEvent { TaskId = id, TaskData = task });
@@ -133,15 +132,8 @@ namespace JulyGame.Task
         {
             if (bundle == null) return;
 
-            var stateDict = new Dictionary<int, ETaskState>(bundle.states.Count);
-            foreach (var s in bundle.states)
-                stateDict[s.taskId] = (ETaskState)s.state;
-            _store.ImportStates(stateDict);
-
-            var boundaryDict = new Dictionary<int, long>(bundle.resetBoundaries.Count);
-            foreach (var b in bundle.resetBoundaries)
-                boundaryDict[b.taskId] = b.ticks;
-            _store.ImportResetBoundaries(boundaryDict);
+            _store.ImportStates(bundle.states);
+            _store.ImportResetBoundaries(bundle.resetBoundaries);
 
             foreach (var pair in _store.All)
             {
@@ -210,8 +202,7 @@ namespace JulyGame.Task
                             ConditionId = cond.ConditionId,
                             OldProgress = oldProgress,
                             NewProgress = newProgress,
-                            ConditionJustCompleted = justCompleted,
-                            TaskJustCompleted = false
+                            ConditionJustCompleted = justCompleted
                         });
 
                         if (justCompleted)
@@ -244,12 +235,13 @@ namespace JulyGame.Task
 
         private void EvaluateResetPolicies()
         {
+            var now = OnGetUtcNow();
+
             foreach (var pair in _store.All)
             {
                 var task = pair.Value;
                 if (task.ResetPolicy == null) continue;
 
-                var now = OnGetUtcNow();
                 var boundary = task.ResetPolicy.GetNextResetUtc(now);
                 var savedTicks = _store.GetResetBoundary(task.TaskId);
 

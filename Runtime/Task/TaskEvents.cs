@@ -19,7 +19,6 @@
         public float OldProgress;
         public float NewProgress;
         public bool ConditionJustCompleted;
-        public bool TaskJustCompleted;
     }
 
     public struct TaskConditionCompletedEvent
