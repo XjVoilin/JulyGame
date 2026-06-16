@@ -1,165 +1,113 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using JulyArch;
 
 namespace JulyGame.Task
 {
     public class TaskStoreData
     {
-        public Dictionary<string, TaskData> Tasks = new();
-        public Dictionary<(TaskConditionType, int), List<(string taskId, string conditionId)>> ConditionIndex = new();
+        public readonly Dictionary<int, TaskData> Tasks = new();
+        public readonly Dictionary<ETaskState, List<int>> StateIndex = new()
+        {
+            { ETaskState.Locked, new List<int>() },
+            { ETaskState.InProgress, new List<int>() },
+            { ETaskState.Completed, new List<int>() }
+        };
+        public readonly Dictionary<int, long> ResetBoundaryTicks = new();
     }
 
     public class TaskStore : StoreBase<TaskStoreData>
     {
-        public TaskData Get(string taskId)
+        public TaskData Get(int taskId)
         {
-            if (string.IsNullOrEmpty(taskId)) return null;
             Data.Tasks.TryGetValue(taskId, out var task);
             return task;
         }
 
-        public IReadOnlyList<TaskData> GetAll()
+        public IReadOnlyDictionary<int, TaskData> All => Data.Tasks;
+
+        public IReadOnlyList<int> GetIdsByState(ETaskState state)
         {
-            return Data.Tasks.Values.ToList();
+            return Data.StateIndex.TryGetValue(state, out var list) ? list : Array.Empty<int>();
         }
 
-        public IReadOnlyList<TaskData> GetByType(TaskType type)
+        public long GetResetBoundary(int taskId)
         {
-            return Data.Tasks.Values.Where(t => t.Type == type).ToList();
+            Data.ResetBoundaryTicks.TryGetValue(taskId, out var ticks);
+            return ticks;
         }
 
-        public IReadOnlyList<TaskData> GetByState(TaskState state)
+        internal void Add(TaskData task)
         {
-            return Data.Tasks.Values.Where(t => t.State == state).ToList();
-        }
-
-        public IReadOnlyList<TaskData> GetByGroup(string group)
-        {
-            if (string.IsNullOrEmpty(group)) return Array.Empty<TaskData>();
-            return Data.Tasks.Values.Where(t => t.Group == group).ToList();
-        }
-
-        public IReadOnlyList<TaskData> Query(Func<TaskData, bool> predicate)
-        {
-            return Data.Tasks.Values.Where(predicate).ToList();
-        }
-
-        public IReadOnlyList<(string taskId, string conditionId)> QueryByCondition(
-            TaskConditionType conditionType, int param)
-        {
-            if (!Data.ConditionIndex.TryGetValue((conditionType, param), out var matches))
-                return Array.Empty<(string, string)>();
-            return matches;
-        }
-
-        public void Store(TaskData taskData)
-        {
-            if (taskData == null || string.IsNullOrEmpty(taskData.TaskId)) return;
-
-            if (Data.Tasks.ContainsKey(taskData.TaskId))
-                RemoveFromIndex(taskData.TaskId);
-
-            Data.Tasks[taskData.TaskId] = taskData;
-            IndexTask(taskData);
+            if (task == null) return;
+            Data.Tasks[task.TaskId] = task;
+            AddToStateIndex(task.TaskId, task.State);
             TraceModify();
         }
 
-        public void StoreBatch(IEnumerable<TaskData> tasks)
+        internal void SetState(int taskId, ETaskState newState)
         {
-            if (tasks == null) return;
+            if (!Data.Tasks.TryGetValue(taskId, out var task)) return;
 
-            foreach (var task in tasks)
-                Store(task);
-        }
+            var oldState = task.State;
+            if (oldState == newState) return;
 
-        public void Update(TaskData taskData)
-        {
-            if (taskData == null || string.IsNullOrEmpty(taskData.TaskId)) return;
-            if (!Data.Tasks.ContainsKey(taskData.TaskId)) return;
-
-            Data.Tasks[taskData.TaskId] = taskData;
+            RemoveFromStateIndex(taskId, oldState);
+            task.State = newState;
+            AddToStateIndex(taskId, newState);
             TraceModify();
         }
 
-        public void Remove(string taskId)
+        internal void SetResetBoundary(int taskId, long ticks)
         {
-            if (string.IsNullOrEmpty(taskId)) return;
-            if (!Data.Tasks.Remove(taskId)) return;
-
-            RemoveFromIndex(taskId);
+            Data.ResetBoundaryTicks[taskId] = ticks;
             TraceModify();
         }
 
-        public void Clear()
+        internal void ImportStates(Dictionary<int, ETaskState> states)
         {
-            Data.Tasks.Clear();
-            Data.ConditionIndex.Clear();
-            TraceModify();
-        }
+            if (states == null) return;
 
-        public Dictionary<string, TaskSaveData> ExportProgress()
-        {
-            var result = new Dictionary<string, TaskSaveData>();
-
-            foreach (var task in Data.Tasks.Values)
-            {
-                var saveData = new TaskSaveData { State = task.State };
-                if (task.Conditions != null)
-                {
-                    foreach (var condition in task.Conditions)
-                        saveData.ConditionProgress[condition.ConditionId] = condition.CurrentValue;
-                }
-
-                result[task.TaskId] = saveData;
-            }
-
-            return result;
-        }
-
-        public void ImportProgress(Dictionary<string, TaskSaveData> data)
-        {
-            if (data == null) return;
-
-            foreach (var pair in data)
+            foreach (var pair in states)
             {
                 if (!Data.Tasks.TryGetValue(pair.Key, out var task)) continue;
 
-                task.State = pair.Value.State;
-                if (task.Conditions == null || pair.Value.ConditionProgress == null) continue;
+                var oldState = task.State;
+                if (oldState == pair.Value) continue;
 
-                foreach (var condition in task.Conditions)
-                {
-                    if (pair.Value.ConditionProgress.TryGetValue(condition.ConditionId, out var value))
-                        condition.CurrentValue = value;
-                }
+                RemoveFromStateIndex(pair.Key, oldState);
+                task.State = pair.Value;
+                AddToStateIndex(pair.Key, pair.Value);
             }
 
             TraceModify();
         }
 
-        private void IndexTask(TaskData task)
+        internal void ImportResetBoundaries(Dictionary<int, long> boundaries)
         {
-            if (task?.Conditions == null) return;
+            if (boundaries == null) return;
 
-            foreach (var condition in task.Conditions)
-            {
-                var key = (condition.Type, condition.Param);
-                if (!Data.ConditionIndex.TryGetValue(key, out var list))
-                {
-                    list = new List<(string taskId, string conditionId)>();
-                    Data.ConditionIndex[key] = list;
-                }
+            foreach (var pair in boundaries)
+                Data.ResetBoundaryTicks[pair.Key] = pair.Value;
 
-                list.Add((task.TaskId, condition.ConditionId));
-            }
+            TraceModify();
         }
 
-        private void RemoveFromIndex(string taskId)
+        private void AddToStateIndex(int taskId, ETaskState state)
         {
-            foreach (var list in Data.ConditionIndex.Values)
-                list.RemoveAll(entry => entry.taskId == taskId);
+            if (!Data.StateIndex.TryGetValue(state, out var list))
+            {
+                list = new List<int>();
+                Data.StateIndex[state] = list;
+            }
+
+            list.Add(taskId);
+        }
+
+        private void RemoveFromStateIndex(int taskId, ETaskState state)
+        {
+            if (Data.StateIndex.TryGetValue(state, out var list))
+                list.Remove(taskId);
         }
     }
 }

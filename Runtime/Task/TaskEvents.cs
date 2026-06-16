@@ -1,57 +1,50 @@
-﻿using System.Collections.Generic;
-
-namespace JulyGame.Task
+﻿namespace JulyGame.Task
 {
-    /// <summary>
-    /// 任务状态变更事件
-    /// </summary>
-    public struct TaskStateChangedEvent
+    public struct TaskRegisteredEvent
     {
-        public string TaskId;
-        public TaskState OldState;
-        public TaskState NewState;
+        public int TaskId;
         public TaskData TaskData;
     }
 
-    /// <summary>
-    /// 任务进度更新事件
-    /// </summary>
+    public struct TaskUnlockedEvent
+    {
+        public int TaskId;
+        public TaskData TaskData;
+    }
+
     public struct TaskProgressUpdatedEvent
     {
-        public string TaskId;
-        public string ConditionId;
-        public int OldValue;
-        public int NewValue;
-        public int TargetValue;
+        public int TaskId;
+        public int ConditionId;
+        public float OldProgress;
+        public float NewProgress;
         public bool ConditionJustCompleted;
         public bool TaskJustCompleted;
     }
 
-    /// <summary>
-    /// 任务完成事件
-    /// </summary>
+    public struct TaskConditionCompletedEvent
+    {
+        public int TaskId;
+        public int ConditionId;
+    }
+
     public struct TaskCompletedEvent
     {
-        public string TaskId;
+        public int TaskId;
         public TaskData TaskData;
     }
 
-    /// <summary>
-    /// 任务奖励领取事件
-    /// </summary>
-    public struct TaskRewardClaimedEvent
+    public struct TaskStateChangedEvent
     {
-        public string TaskId;
-        public List<TaskReward> Rewards;
+        public int TaskId;
+        public ETaskState OldState;
+        public ETaskState NewState;
         public TaskData TaskData;
     }
 
-    /// <summary>
-    /// 任务解锁事件
-    /// </summary>
-    public struct TaskUnlockedEvent
+    public struct TaskResetEvent
     {
-        public string TaskId;
+        public int TaskId;
         public TaskData TaskData;
     }
 }
