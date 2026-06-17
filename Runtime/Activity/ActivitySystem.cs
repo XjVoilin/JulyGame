@@ -36,6 +36,9 @@ namespace JulyGame.Activity
         protected abstract void OnConfigure();
         protected virtual void OnDispose() { }
 
+        /// <summary>服务器 UTC 时间戳（秒）。可覆写以接入对时或便于测试。</summary>
+        protected virtual long OnGetServerTimeUtc() => GF.Time.ServerTimeUtcTimestamp;
+
         public void OnUpdate(float deltaTime)
         {
             if (!_isReady || _store.Definitions.Count == 0)
@@ -152,7 +155,7 @@ namespace JulyGame.Activity
 
         public ActivityState CalculateState(long preAnnounceTime, long startTime, long endTime)
         {
-            var now = GF.Time.ServerTimeUtcTimestamp;
+            var now = OnGetServerTimeUtc();
 
             if (now > endTime)
                 return ActivityState.Ended;
@@ -183,7 +186,7 @@ namespace JulyGame.Activity
 
             var record = _store.GetOrCreateRecord(activityId);
             record.DataPayload = dataPayload;
-            record.LastUpdateTime = GF.Time.ServerTimeUtcTimestamp;
+            record.LastUpdateTime = OnGetServerTimeUtc();
             _store.UpdateRecord(record);
 
             Publish(new ActivityProgressChangedEvent
@@ -201,6 +204,16 @@ namespace JulyGame.Activity
         public void ClearActivityData(string activityId)
         {
             _store.ClearActivityData(activityId);
+        }
+
+        /// <summary>导出活动运行时数据（记录 + 已开启标记）为纯数据包，便于接入方持久化。</summary>
+        public ActivityRuntimeData ExportData() => _store.ExportRuntime();
+
+        /// <summary>从数据包恢复活动运行时数据。需在活动注册前调用，再 CompleteRegistration。</summary>
+        public void ImportData(ActivityRuntimeData data)
+        {
+            if (data == null) return;
+            _store.ImportRuntime(data);
         }
 
         private void CheckAndUpdateStates()

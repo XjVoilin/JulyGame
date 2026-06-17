@@ -4,6 +4,7 @@ using JulyArch;
 
 namespace JulyGame.Task
 {
+    /// <summary>任务系统的数据载体：任务字典、按状态分桶的 id 索引、重置边界 Ticks。</summary>
     public class TaskStoreData
     {
         public readonly Dictionary<int, TaskData> Tasks = new();
@@ -16,6 +17,10 @@ namespace JulyGame.Task
         public readonly Dictionary<int, long> ResetBoundaryTicks = new();
     }
 
+    /// <summary>
+    /// 任务数据 Store。写操作全部 internal，仅 <see cref="TaskSystemBase"/> 可改；外部只读查询。
+    /// 维护状态分桶索引以支持按状态快速遍历。
+    /// </summary>
     public class TaskStore : StoreBase<TaskStoreData>
     {
         public TaskData Get(int taskId)
@@ -43,6 +48,17 @@ namespace JulyGame.Task
             Data.Tasks[task.TaskId] = task;
             AddToTaskIdsByState(task.TaskId, task.State);
             TraceModify();
+        }
+
+        internal bool Remove(int taskId)
+        {
+            if (!Data.Tasks.TryGetValue(taskId, out var task)) return false;
+
+            RemoveFromTaskIdsByState(taskId, task.State);
+            Data.Tasks.Remove(taskId);
+            Data.ResetBoundaryTicks.Remove(taskId);
+            TraceModify();
+            return true;
         }
 
         internal void SetState(int taskId, ETaskState newState)

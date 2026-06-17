@@ -1,17 +1,11 @@
-using System;
 using System.Collections.Generic;
-using Cysharp.Threading.Tasks;
 using JulyArch;
-using JulyCore;
 
 namespace JulyGame.Guide
 {
     public abstract class GuideSystemBase : GameSystemBase
     {
-        private const string SaveKey = "guide_progress";
-
         private GuideStore _store;
-        private GuideProgressData _saveData;
 
         private IGuidePresenter _presenter;
         private IGuideDataProvider _dataProvider;
@@ -27,15 +21,12 @@ namespace JulyGame.Guide
 
         protected sealed override void OnStart()
         {
-            LoadProgressAsync().Forget();
             OnConfigure();
         }
 
         protected sealed override void OnShutdown()
         {
             OnDispose();
-
-            SaveProgressAsync().Forget();
 
             foreach (var handler in _flowHandlers.Values)
             {
@@ -47,7 +38,6 @@ namespace JulyGame.Guide
             _activeHandler = null;
             _presenter = null;
             _dataProvider = null;
-            _saveData = null;
         }
 
         protected abstract void OnConfigure();
@@ -161,7 +151,6 @@ namespace JulyGame.Guide
 
             _presenter?.OnFlowComplete(flowId);
             Publish(new GuideFlowCompletedEvent { FlowId = flowId });
-            SaveProgressAsync().Forget();
         }
 
         public void CompleteCurrentStep()
@@ -230,13 +219,21 @@ namespace JulyGame.Guide
 
         #region Progress
 
-        public void ClearProgress()
+        /// <summary>清空全部引导进度（已完成流程/步骤、当前进度）。存储清理由项目层负责。</summary>
+        public void ClearAll()
         {
             _store.ClearProgress();
             _isFlowActive = false;
-            _saveData = null;
-            GF.Save.Unregister(SaveKey);
-            GF.Save.DeleteAsync(SaveKey);
+        }
+
+        /// <summary>导出引导进度为纯数据包，便于接入方持久化。</summary>
+        public GuideProgressData ExportData() => _store.ExportToSaveData();
+
+        /// <summary>从数据包恢复引导进度。需在 OnConfigure 注册流程后调用。</summary>
+        public void ImportData(GuideProgressData data)
+        {
+            if (data == null) return;
+            _store.ImportFromSaveData(data);
         }
 
         #endregion
@@ -339,7 +336,6 @@ namespace JulyGame.Guide
             _store.SetCurrentStep(flowId, stepId);
             _presenter?.OnStepEnter(stepData);
             Publish(new GuideStepEnteredEvent { FlowId = flowId, StepId = stepId });
-            SaveProgressAsync().Forget();
         }
 
         private void CompleteFlow(string flowId)
@@ -351,7 +347,6 @@ namespace JulyGame.Guide
 
             _presenter?.OnFlowComplete(flowId);
             Publish(new GuideFlowCompletedEvent { FlowId = flowId });
-            SaveProgressAsync().Forget();
         }
 
         private void ActivateHandler(string flowId)
@@ -376,49 +371,6 @@ namespace JulyGame.Guide
             catch { /* ignore */ }
 
             _flowHandlers.Remove(flowId);
-        }
-
-        #endregion
-
-        #region Persistence
-
-        private async UniTask LoadProgressAsync()
-        {
-            try
-            {
-                _saveData = await GF.Save.LoadAndRegisterAsync<GuideProgressData>(SaveKey);
-                if (_saveData != null &&
-                    (_saveData.completedFlows?.Count > 0 || !string.IsNullOrEmpty(_saveData.currentFlowId)))
-                {
-                    _store.ImportFromSaveData(_saveData);
-                }
-            }
-            catch
-            {
-                // load failure is non-fatal
-            }
-        }
-
-        private async UniTask SaveProgressAsync()
-        {
-            try
-            {
-                var exported = _store.ExportToSaveData();
-
-                if (_saveData != null)
-                {
-                    _saveData.currentFlowId = exported.currentFlowId;
-                    _saveData.currentStepId = exported.currentStepId;
-                    _saveData.completedFlows = exported.completedFlows;
-                    _saveData.completedSteps = exported.completedSteps;
-
-                    GF.Save.MarkDirty(SaveKey);
-                }
-            }
-            catch
-            {
-                // save failure is non-fatal
-            }
         }
 
         #endregion

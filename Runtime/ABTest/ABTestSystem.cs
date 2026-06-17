@@ -13,6 +13,7 @@ namespace JulyGame.ABTest
         private readonly Dictionary<string, ConditionChecker> _conditionCheckers = new();
         private CustomAllocator _customAllocator;
         private readonly object _lock = new();
+        private readonly Random _random = new();
 
         protected sealed override void OnInitialize()
         {
@@ -361,7 +362,7 @@ namespace JulyGame.ABTest
             var totalWeight = experiment.GetTotalWeight();
             if (totalWeight <= 0) return experiment.Groups[0];
 
-            var randomValue = new Random().Next(totalWeight);
+            var randomValue = _random.Next(totalWeight);
             var cumulative = 0;
             foreach (var group in experiment.Groups)
             {

@@ -30,7 +30,7 @@ namespace JulyGame.RedDot
             _system = null;
         }
 
-        protected void Refresh()
+        protected void RaiseChanged()
         {
             _system?.Refresh(Key);
         }

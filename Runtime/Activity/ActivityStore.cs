@@ -1,9 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
-using Cysharp.Threading.Tasks;
 using JulyArch;
-using JulyCore;
-using JulyCore.Data.Save;
 
 namespace JulyGame.Activity
 {
@@ -17,12 +13,10 @@ namespace JulyGame.Activity
 
     /// <summary>
     /// 活动数据 Store：持有活动定义、运行时记录、开启标记与状态缓存。
+    /// 纯内存 Store，持久化由项目层经 ActivitySystemBase.ExportData/ImportData 负责。
     /// </summary>
-    public class ActivityStore : StoreBase<ActivityStoreData>, IAsyncLoadable
+    public class ActivityStore : StoreBase<ActivityStoreData>
     {
-        private const string SaveKey = "activity_data";
-        private ActivityRuntimeData _saveData;
-
         public IReadOnlyDictionary<string, ActivityDefinition> Definitions => Data.Definitions;
         public IReadOnlyDictionary<string, ActivityRecord> Records => Data.Records;
         public IReadOnlyCollection<string> OpenedActivityIds => Data.OpenedActivityIds;
@@ -84,8 +78,6 @@ namespace JulyGame.Activity
             if (record == null || string.IsNullOrEmpty(record.ActivityId)) return;
 
             Data.Records[record.ActivityId] = record;
-            SyncToSaveData();
-            GF.Save.MarkDirty(SaveKey);
             TraceModify();
         }
 
@@ -94,11 +86,7 @@ namespace JulyGame.Activity
             if (string.IsNullOrEmpty(activityId)) return;
 
             if (Data.OpenedActivityIds.Add(activityId))
-            {
-                SyncToSaveData();
-                GF.Save.MarkDirty(SaveKey);
                 TraceModify();
-            }
         }
 
         internal void SetCachedState(string activityId, ActivityState state)
@@ -117,50 +105,41 @@ namespace JulyGame.Activity
             if (Data.OpenedActivityIds.Remove(activityId))
                 changed = true;
 
-            if (!changed) return;
-
-            SyncToSaveData();
-            GF.Save.MarkDirty(SaveKey);
-            TraceModify();
+            if (changed)
+                TraceModify();
         }
 
-        async UniTask IAsyncLoadable.OnLoadAsync()
+        /// <summary>导出可持久化的运行时数据（记录 + 已开启标记）。</summary>
+        internal ActivityRuntimeData ExportRuntime()
         {
-            Data = new ActivityStoreData();
-            _saveData = await GF.Save.LoadAndRegisterAsync<ActivityRuntimeData>(SaveKey);
-            SyncFromSaveData();
+            var data = new ActivityRuntimeData();
+            foreach (var pair in Data.Records)
+                data.RecordMap[pair.Key] = pair.Value;
+            foreach (var id in Data.OpenedActivityIds)
+                data.OpenedActivityIds.Add(id);
+            return data;
         }
 
-        protected override void OnShutdown()
+        /// <summary>从数据包恢复运行时数据。覆盖现有记录与开启标记。</summary>
+        internal void ImportRuntime(ActivityRuntimeData data)
         {
-            GF.Save.Unregister(SaveKey);
-            _saveData = null;
-        }
-
-        private void SyncFromSaveData()
-        {
-            if (_saveData == null) return;
+            if (data == null) return;
 
             Data.Records.Clear();
-            foreach (var pair in _saveData.RecordMap)
-                Data.Records[pair.Key] = pair.Value;
+            if (data.RecordMap != null)
+            {
+                foreach (var pair in data.RecordMap)
+                    Data.Records[pair.Key] = pair.Value;
+            }
 
             Data.OpenedActivityIds.Clear();
-            foreach (var activityId in _saveData.OpenedActivityIds)
-                Data.OpenedActivityIds.Add(activityId);
-        }
+            if (data.OpenedActivityIds != null)
+            {
+                foreach (var id in data.OpenedActivityIds)
+                    Data.OpenedActivityIds.Add(id);
+            }
 
-        private void SyncToSaveData()
-        {
-            if (_saveData == null) return;
-
-            _saveData.RecordMap.Clear();
-            foreach (var pair in Data.Records)
-                _saveData.RecordMap[pair.Key] = pair.Value;
-
-            _saveData.OpenedActivityIds.Clear();
-            foreach (var activityId in Data.OpenedActivityIds)
-                _saveData.OpenedActivityIds.Add(activityId);
+            TraceModify();
         }
     }
 }
