@@ -309,5 +309,202 @@ namespace JulyGame.Tests.Task
             cond.Current = 1;
             Assert.IsNotNull(_system.GetTask(99));
         }
+
+        #region Activation-window tests (TaskConditionBase / TaskUnlockRuleBase)
+
+        /// <summary>
+        /// 继承 TaskConditionBase 的条件，通过外部 Increment 驱动 RaiseChanged。
+        /// 跟踪 OnActivate/OnDeactivate 调用次数以验证激活窗口生命周期。
+        /// </summary>
+        private sealed class ActivatableCondition : TaskConditionBase
+        {
+            public override int ConditionId { get; }
+
+            private int _current;
+            private readonly int _target;
+
+            public int ActivateCount { get; private set; }
+            public int DeactivateCount { get; private set; }
+
+            public ActivatableCondition(int id, int target)
+            {
+                ConditionId = id;
+                _target = target;
+            }
+
+            public int Current => _current;
+            public override bool IsCompleted => _current >= _target;
+            public override float Progress => _target <= 0 ? 1f : Mathf.Clamp01((float)_current / _target);
+
+            public override void Reset() => _current = 0;
+
+            public void Increment(int amount = 1)
+            {
+                _current += amount;
+                RaiseChanged();
+            }
+
+            protected override void OnActivate() => ActivateCount++;
+            protected override void OnDeactivate() => DeactivateCount++;
+        }
+
+        /// <summary>
+        /// 继承 TaskUnlockRuleBase 的解锁规则，跟踪 OnActivate/OnDeactivate 调用。
+        /// </summary>
+        private sealed class ActivatableRule : TaskUnlockRuleBase
+        {
+            private bool _allow;
+
+            public int ActivateCount { get; private set; }
+            public int DeactivateCount { get; private set; }
+
+            public void SetAllow(bool allow)
+            {
+                if (_allow == allow) return;
+                _allow = allow;
+                RaiseChanged();
+            }
+
+            public override bool CanUnlock() => _allow;
+
+            protected override void OnActivate() => ActivateCount++;
+            protected override void OnDeactivate() => DeactivateCount++;
+        }
+
+        [Test]
+        public void LockedTask_ConditionNotActivated_RuleActivated()
+        {
+            var cond = new ActivatableCondition(1, 3);
+            var rule = new ActivatableRule();
+            Boot(Task(1, ETaskState.Locked, cond, rule));
+
+            Assert.AreEqual(0, cond.ActivateCount, "Locked 状态下 Condition 不应被激活");
+            Assert.AreEqual(1, rule.ActivateCount, "Locked 状态下 UnlockRule 应被激活");
+        }
+
+        [Test]
+        public void Unlock_ActivatesCondition_DeactivatesRule()
+        {
+            var cond = new ActivatableCondition(1, 3);
+            var rule = new ActivatableRule();
+            Boot(Task(1, ETaskState.Locked, cond, rule));
+
+            rule.SetAllow(true);
+
+            Assert.AreEqual(ETaskState.InProgress, _system.GetTask(1).State);
+            Assert.AreEqual(1, cond.ActivateCount, "解锁后 Condition 应被激活");
+            Assert.AreEqual(1, rule.DeactivateCount, "解锁后 UnlockRule 应被休眠");
+        }
+
+        [Test]
+        public void Completion_DeactivatesCondition()
+        {
+            var cond = new ActivatableCondition(1, 2);
+            Boot(Task(1, ETaskState.InProgress, cond));
+
+            Assert.AreEqual(1, cond.ActivateCount);
+
+            cond.Increment(2);
+
+            Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State);
+            Assert.AreEqual(1, cond.DeactivateCount, "完成后 Condition 应被休眠");
+        }
+
+        [Test]
+        public void Completion_FurtherIncrements_DoNotAffectState()
+        {
+            var cond = new ActivatableCondition(1, 2);
+            Boot(Task(1, ETaskState.InProgress, cond));
+
+            cond.Increment(2);
+            Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State);
+
+            var progressCount = 0;
+            _ctx.Event.Subscribe<TaskProgressUpdatedEvent>(_ => progressCount++, this);
+
+            cond.Increment(5);
+
+            Assert.AreEqual(0, progressCount, "完成后的 increment 不应触发进度事件");
+        }
+
+        [Test]
+        public void ManualReset_ReactivatesCondition()
+        {
+            var cond = new ActivatableCondition(1, 2);
+            Boot(Task(1, ETaskState.InProgress, cond));
+
+            cond.Increment(2);
+            Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State);
+            Assert.AreEqual(1, cond.DeactivateCount);
+
+            _system.ResetTask(1);
+
+            Assert.AreEqual(ETaskState.InProgress, _system.GetTask(1).State);
+            Assert.AreEqual(2, cond.ActivateCount, "重置后 Condition 应被重新激活");
+            Assert.AreEqual(0, cond.Current, "重置应清零计数");
+        }
+
+        [Test]
+        public void Unregister_DeactivatesCondition()
+        {
+            var cond = new ActivatableCondition(1, 3);
+            Boot(Task(1, ETaskState.InProgress, cond));
+
+            Assert.AreEqual(1, cond.ActivateCount);
+
+            _system.UnregisterTask(1);
+
+            Assert.AreEqual(1, cond.DeactivateCount, "卸载应休眠 Condition");
+        }
+
+        [Test]
+        public void Unlock_WhenConditionAlreadyMet_CompletesImmediately()
+        {
+            var cond = new ActivatableCondition(1, 0);
+            var rule = new ActivatableRule();
+            Boot(Task(1, ETaskState.Locked, cond, rule));
+
+            var completed = false;
+            _ctx.Event.Subscribe<TaskCompletedEvent>(_ => completed = true, this);
+
+            rule.SetAllow(true);
+
+            Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State,
+                "解锁时条件已满足应立即完成，不卡死");
+            Assert.IsTrue(completed);
+        }
+
+        [Test]
+        public void ActivateIsIdempotent()
+        {
+            var cond = new ActivatableCondition(1, 3);
+            Boot(Task(1, ETaskState.InProgress, cond));
+
+            Assert.AreEqual(1, cond.ActivateCount);
+
+            _system.RegisterTask(Task(1, ETaskState.InProgress, cond));
+
+            Assert.AreEqual(1, cond.ActivateCount, "重复激活应被幂等忽略");
+        }
+
+        [Test]
+        public void ImportData_RealignsActivation()
+        {
+            var cond = new ActivatableCondition(1, 3);
+            var rule = new ActivatableRule();
+            Boot(Task(1, ETaskState.Locked, cond, rule));
+
+            Assert.AreEqual(0, cond.ActivateCount);
+            Assert.AreEqual(1, rule.ActivateCount);
+
+            var bundle = new TaskSaveBundle();
+            bundle.states.Add(new TaskStateSave { taskId = 1, state = (int)ETaskState.InProgress });
+            _system.ImportData(bundle);
+
+            Assert.AreEqual(1, cond.ActivateCount, "ImportData 切到 InProgress 后 Condition 应激活");
+            Assert.AreEqual(1, rule.DeactivateCount, "ImportData 切到 InProgress 后 Rule 应休眠");
+        }
+
+        #endregion
     }
 }

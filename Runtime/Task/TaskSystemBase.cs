@@ -85,12 +85,15 @@ namespace JulyGame.Task
             _store.Add(task);
 
             BindNotifiers(task);
+            ActivatePolicy(task);
 
             if (task.ResetPolicy != null)
             {
                 var boundary = task.ResetPolicy.GetNextResetUtc(OnGetUtcNow());
                 _store.SetResetBoundary(task.TaskId, boundary.Ticks);
             }
+
+            SyncExtensionActivation(task);
 
             Publish(new TaskRegisteredEvent { TaskId = task.TaskId, TaskData = task });
 
@@ -137,6 +140,7 @@ namespace JulyGame.Task
 
             _store.SetState(id, ETaskState.InProgress);
             ResetConditions(task);
+            SyncExtensionActivation(task);
 
             Publish(new TaskStateChangedEvent
             {
@@ -144,6 +148,8 @@ namespace JulyGame.Task
                 NewState = ETaskState.InProgress, TaskData = task
             });
             Publish(new TaskResetEvent { TaskId = id, TaskData = task });
+
+            EvaluateInProgressTask(task);
 
             return true;
         }
@@ -206,6 +212,8 @@ namespace JulyGame.Task
             _muted = true;
             foreach (var pair in _store.All)
             {
+                SyncExtensionActivation(pair.Value);
+
                 if (pair.Value.State == ETaskState.InProgress)
                     CacheConditionState(pair.Value);
             }
@@ -356,6 +364,7 @@ namespace JulyGame.Task
             if (allCompleted && task.Conditions.Count > 0)
             {
                 _store.SetState(task.TaskId, ETaskState.Completed);
+                SyncExtensionActivation(task);
 
                 Publish(new TaskStateChangedEvent
                 {
@@ -395,6 +404,7 @@ namespace JulyGame.Task
                     var oldState = task.State;
                     _store.SetState(task.TaskId, ETaskState.InProgress);
                     ResetConditions(task);
+                    SyncExtensionActivation(task);
 
                     if (oldState != ETaskState.InProgress)
                     {
@@ -406,6 +416,8 @@ namespace JulyGame.Task
                     }
 
                     Publish(new TaskResetEvent { TaskId = task.TaskId, TaskData = task });
+
+                    EvaluateInProgressTask(task);
                 }
             }
         }
@@ -413,6 +425,48 @@ namespace JulyGame.Task
         #endregion
 
         #region Private helpers
+
+        /// <summary>
+        /// 按任务当前状态同步扩展点的激活/休眠。幂等，重复调用安全。
+        /// Condition 当且仅当 InProgress 活动；UnlockRule 当且仅当 Locked 活动。
+        /// ResetPolicy 全程活动，由 ActivatePolicy/ClearExtensionSubscriptions 管理。
+        /// </summary>
+        private void SyncExtensionActivation(TaskData task)
+        {
+            SetConditionsActive(task, task.State == ETaskState.InProgress);
+            SetRulesActive(task, task.State == ETaskState.Locked);
+        }
+
+        private void SetConditionsActive(TaskData task, bool active)
+        {
+            if (task.Conditions == null) return;
+            for (var i = 0; i < task.Conditions.Count; i++)
+            {
+                if (task.Conditions[i] is TaskConditionBase cb)
+                {
+                    if (active) cb.Activate();
+                    else cb.Deactivate();
+                }
+            }
+        }
+
+        private void SetRulesActive(TaskData task, bool active)
+        {
+            if (task.UnlockRules == null) return;
+            for (var i = 0; i < task.UnlockRules.Count; i++)
+            {
+                if (task.UnlockRules[i] is TaskUnlockRuleBase rb)
+                {
+                    if (active) rb.Activate();
+                    else rb.Deactivate();
+                }
+            }
+        }
+
+        private void ActivatePolicy(TaskData task)
+        {
+            (task.ResetPolicy as TaskResetPolicyBase)?.Activate();
+        }
 
         private void BindNotifiers(TaskData task)
         {
@@ -490,6 +544,7 @@ namespace JulyGame.Task
         {
             _store.SetState(task.TaskId, ETaskState.InProgress);
             ResetConditions(task);
+            SyncExtensionActivation(task);
 
             Publish(new TaskStateChangedEvent
             {
@@ -497,6 +552,8 @@ namespace JulyGame.Task
                 NewState = ETaskState.InProgress, TaskData = task
             });
             Publish(new TaskUnlockedEvent { TaskId = task.TaskId, TaskData = task });
+
+            EvaluateInProgressTask(task);
         }
 
         /// <summary>调用各条件的 Reset() 清零内部计数，再以清零后的值重建缓存。静默期内 notifier 被忽略。</summary>
