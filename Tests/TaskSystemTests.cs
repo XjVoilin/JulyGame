@@ -105,7 +105,6 @@ namespace JulyGame.Tests.Task
         private sealed class DailyResetPolicy : ITaskResetPolicy
         {
             public DateTime GetNextResetUtc(DateTime utcNow) => utcNow.Date.AddDays(1);
-            public void BindChangeNotifier(Action onChanged) { }
         }
 
         /// <summary>最小接入示例：把待注册任务交给基座，并暴露可控时间。</summary>
@@ -113,6 +112,13 @@ namespace JulyGame.Tests.Task
         {
             public DateTime Now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             public readonly List<TaskData> ToRegister = new();
+            public TaskRepository Repository;
+            public int DirtyCount;
+
+            protected override TaskRepository ResolveRepository()
+                => Repository ??= new TaskRepository(new TaskSaveBundle(), () => DirtyCount++);
+
+            public TaskRepository GetRepository() => Repository;
 
             protected override void OnConfigure()
             {
@@ -131,7 +137,6 @@ namespace JulyGame.Tests.Task
         private void Boot(params TaskData[] tasks)
         {
             _ctx = new ArchContext();
-            _ctx.RegisterStore(new TaskStore());
 
             _system = new TestTaskSystem();
             _system.ToRegister.AddRange(tasks);
@@ -285,9 +290,8 @@ namespace JulyGame.Tests.Task
             cond.Current = 2;
             Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State);
 
-            var bundle = _system.ExportData();
+            var bundle = _system.GetRepository().Export();
 
-            // 重建一套系统，状态应从存档恢复为 Completed。
             _ctx.Shutdown();
             Boot(Task(1, ETaskState.InProgress, new CountCondition(1, 2)));
             _system.ImportData(bundle);
@@ -485,6 +489,43 @@ namespace JulyGame.Tests.Task
             _system.RegisterTask(Task(1, ETaskState.InProgress, cond));
 
             Assert.AreEqual(1, cond.ActivateCount, "重复激活应被幂等忽略");
+        }
+
+        [Test]
+        public void ConstructorBundle_RestoresStateOnAdd()
+        {
+            var cond = new CountCondition(1, 2);
+            Boot(Task(1, ETaskState.InProgress, cond));
+
+            cond.Current = 2;
+            Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State);
+
+            var savedBundle = _system.GetRepository().Bundle;
+
+            _ctx.Shutdown();
+
+            _ctx = new ArchContext();
+            _system = new TestTaskSystem();
+            _system.Repository = new TaskRepository(savedBundle, () => _system.DirtyCount++);
+            _system.ToRegister.Add(Task(1, ETaskState.InProgress, new CountCondition(1, 2)));
+            _ctx.RegisterSystem(_system);
+            _ctx.InitializeAsync().GetAwaiter().GetResult();
+
+            Assert.AreEqual(ETaskState.Completed, _system.GetTask(1).State,
+                "Add 应从构造器注入的 bundle 恢复 Completed 状态");
+        }
+
+        [Test]
+        public void StateTransition_TriggersMarkDirty()
+        {
+            var cond = new CountCondition(1, 2);
+            Boot(Task(1, ETaskState.InProgress, cond));
+            var before = _system.DirtyCount;
+
+            cond.Current = 2;
+
+            Assert.Greater(_system.DirtyCount, before,
+                "任务状态流转应经 TaskRepository.markDirty 自动标脏");
         }
 
         [Test]

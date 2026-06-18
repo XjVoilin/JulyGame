@@ -9,7 +9,7 @@ namespace JulyGame.ABTest
 
     public abstract class ABTestSystemBase : GameSystemBase
     {
-        private ABTestStore _store;
+        private ABTestRepository _repo;
         private readonly Dictionary<string, ConditionChecker> _conditionCheckers = new();
         private CustomAllocator _customAllocator;
         private readonly object _lock = new();
@@ -17,9 +17,11 @@ namespace JulyGame.ABTest
 
         protected sealed override void OnInitialize()
         {
-            _store = GetStore<ABTestStore>();
+            _repo = ResolveRepository();
             RegisterDefaultConditionCheckers();
         }
+
+        protected abstract ABTestRepository ResolveRepository();
 
         protected sealed override void OnStart()
         {
@@ -41,39 +43,39 @@ namespace JulyGame.ABTest
 
         #region User settings
 
-        public void SetUserId(string userId) => _store.SetUserId(userId);
-        public void SetDeviceId(string deviceId) => _store.SetDeviceId(deviceId);
+        public void SetUserId(string userId) => _repo.SetUserId(userId);
+        public void SetDeviceId(string deviceId) => _repo.SetDeviceId(deviceId);
 
-        public void SetUserAttribute(string key, string value) => _store.SetUserAttribute(key, value);
+        public void SetUserAttribute(string key, string value) => _repo.SetUserAttribute(key, value);
 
         public void SetUserAttributes(Dictionary<string, string> attributes) =>
-            _store.SetUserAttributes(attributes);
+            _repo.SetUserAttributes(attributes);
 
-        public void ClearUserAttributes() => _store.ClearUserAttributes();
+        public void ClearUserAttributes() => _repo.ClearUserAttributes();
 
         #endregion
 
         #region Experiment management
 
-        public void RegisterExperiment(Experiment experiment) => _store.StoreExperiment(experiment);
+        public void RegisterExperiment(Experiment experiment) => _repo.StoreExperiment(experiment);
 
         public void RegisterExperiments(IEnumerable<Experiment> experiments) =>
-            _store.StoreExperiments(experiments);
+            _repo.StoreExperiments(experiments);
 
-        public void UnregisterExperiment(string experimentId) => _store.RemoveExperiment(experimentId);
-        public void ClearAllExperiments() => _store.ClearExperiments();
-        public Experiment GetExperiment(string experimentId) => _store.GetExperiment(experimentId);
-        public List<Experiment> GetAllExperiments() => _store.GetAllExperiments();
-        public List<Experiment> GetRunningExperiments() => _store.GetRunningExperiments();
+        public void UnregisterExperiment(string experimentId) => _repo.RemoveExperiment(experimentId);
+        public void ClearAllExperiments() => _repo.ClearExperiments();
+        public Experiment GetExperiment(string experimentId) => _repo.GetExperiment(experimentId);
+        public List<Experiment> GetAllExperiments() => _repo.GetAllExperiments();
+        public List<Experiment> GetRunningExperiments() => _repo.GetRunningExperiments();
 
         public void SetExperimentStatus(string experimentId, ExperimentStatus status)
         {
-            var experiment = _store.GetExperiment(experimentId);
+            var experiment = _repo.GetExperiment(experimentId);
             if (experiment == null) return;
 
             var oldStatus = experiment.Status;
             experiment.Status = status;
-            _store.UpdateExperiment(experiment);
+            _repo.UpdateExperiment(experiment);
 
             Publish(new ExperimentStatusChangedEvent
             {
@@ -87,7 +89,7 @@ namespace JulyGame.ABTest
         public void LoadFromConfigTable(ExperimentConfigTable configTable)
         {
             if (configTable?.Experiments == null) return;
-            _store.StoreExperiments(configTable.ToExperimentList());
+            _repo.StoreExperiments(configTable.ToExperimentList());
         }
 
         #endregion
@@ -96,15 +98,15 @@ namespace JulyGame.ABTest
 
         public ExperimentGroup GetUserGroup(string experimentId, string userId = null)
         {
-            userId = userId ?? _store.GetUserId();
+            userId = userId ?? _repo.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return null;
 
-            var experiment = _store.GetExperiment(experimentId);
+            var experiment = _repo.GetExperiment(experimentId);
             if (experiment == null || !experiment.IsAvailable())
                 return null;
 
-            var existingAssignment = _store.GetAssignment(experimentId);
+            var existingAssignment = _repo.GetAssignment(experimentId);
             if (existingAssignment != null)
             {
                 var existingGroup = experiment.Groups.Find(g => g.GroupId == existingAssignment.GroupId);
@@ -133,7 +135,7 @@ namespace JulyGame.ABTest
                 AssignedTime = DateTime.UtcNow,
                 ExperimentVersion = 1
             };
-            _store.StoreAssignment(assignment);
+            _repo.StoreAssignment(assignment);
 
             Publish(new UserAssignedToExperimentEvent
             {
@@ -192,17 +194,17 @@ namespace JulyGame.ABTest
         public void RecordExposure(string experimentId, string scene = null,
             Dictionary<string, object> extraData = null, string userId = null)
         {
-            userId = userId ?? _store.GetUserId();
+            userId = userId ?? _repo.GetUserId();
             if (string.IsNullOrEmpty(userId)) return;
 
-            var assignment = _store.GetAssignment(experimentId);
+            var assignment = _repo.GetAssignment(experimentId);
             if (assignment == null) return;
 
             var isFirstExposure = !assignment.FirstExposureTime.HasValue;
             if (isFirstExposure)
             {
                 assignment.FirstExposureTime = DateTime.UtcNow;
-                _store.StoreAssignment(assignment);
+                _repo.StoreAssignment(assignment);
             }
 
             Publish(new ExperimentExposureEvent
@@ -291,7 +293,7 @@ namespace JulyGame.ABTest
             if (experiment.EntryConditions == null || experiment.EntryConditions.Count == 0)
                 return true;
 
-            var context = new Dictionary<string, string>(_store.GetUserAttributes());
+            var context = new Dictionary<string, string>(_repo.GetUserAttributes());
 
             foreach (var condition in experiment.EntryConditions)
             {
@@ -316,7 +318,7 @@ namespace JulyGame.ABTest
 
             foreach (var excludeId in experiment.MutualExclusionIds)
             {
-                if (_store.GetAssignment(excludeId) != null)
+                if (_repo.GetAssignment(excludeId) != null)
                     return false;
             }
 
@@ -348,7 +350,7 @@ namespace JulyGame.ABTest
                 case AllocationStrategy.Random:
                     return AllocateByRandom(experiment);
                 case AllocationStrategy.DeviceIdHash:
-                    return AllocateByHash(experiment, _store.GetDeviceId() ?? userId);
+                    return AllocateByHash(experiment, _repo.GetDeviceId() ?? userId);
                 case AllocationStrategy.Custom when _customAllocator != null:
                     var groupId = _customAllocator(experiment, userId);
                     return experiment.Groups.Find(g => g.GroupId == groupId);
@@ -406,23 +408,9 @@ namespace JulyGame.ABTest
 
         #endregion
 
-        #region Persistence
-
-        public ABTestSaveData ExportData(string userId = null)
-        {
-            if (!string.IsNullOrEmpty(userId))
-                _store.SetUserId(userId);
-
-            return _store.ExportSaveData();
-        }
-
-        public void ImportData(ABTestSaveData saveData) => _store.ImportSaveData(saveData);
-
         public void ClearUserData()
         {
-            _store.ClearAssignments();
+            _repo.ClearAssignments();
         }
-
-        #endregion
     }
 }

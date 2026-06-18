@@ -12,38 +12,47 @@ namespace JulyGame.Task
     /// 组合而成的任务，并订阅 TaskXxxEvent 接管发奖、UI 等表现层逻辑。
     /// </summary>
     /// <remarks>
-    /// 评估模型（push 驱动）：三类扩展点在注册时均被注入变更通知回调
+    /// 评估模型（push 驱动）：条件与解锁规则在注册时被注入变更通知回调
     /// （<see cref="ITaskCondition.BindChangeNotifier"/> /
-    /// <see cref="ITaskUnlockRule.BindChangeNotifier"/> /
-    /// <see cref="ITaskResetPolicy.BindChangeNotifier"/>），
+    /// <see cref="ITaskUnlockRule.BindChangeNotifier"/>），
     /// 内部状态变化后由接入方主动调用回调，基座收到通知后同步评估**单个任务**的状态流转。
     /// 不做每帧全量轮询，进度变更到事件广播零延迟。
     /// <para/>
-    /// 对于纯时间驱动的重置边界，接入方可在自身时间源（App 心跳、前台恢复等）中调用策略的 notifier，
-    /// 也可调用 <see cref="SweepResets"/> 批量检查所有带重置策略的任务。
+    /// 重置为时间驱动、批量检查：接入方在自身时间源（App 心跳、前台恢复等）中调用
+    /// <see cref="SweepResets"/>，基座据 <see cref="ITaskResetPolicy"/> 的边界统一判定与重置。
     /// </remarks>
     public abstract class TaskSystemBase : GameSystemBase
     {
-        private TaskStore _store;
+        private TaskRepository _repo;
 
-        // 展示进度缓存：用于差量检测，触发 TaskProgressUpdatedEvent。键 = PackKey(taskId, conditionId)。
-        private readonly Dictionary<long, float> _lastProgress = new();
-        // 完成状态缓存：以 IsCompleted 为权威检测条件完成边沿，触发 TaskConditionCompletedEvent。
-        private readonly Dictionary<long, bool> _lastCompleted = new();
-
-        // 重置扫描期复用缓冲，避免每次分配。
-        private readonly List<int> _resetIdBuffer = new();
+        // 条件缓存：进度用于差量检测触发 TaskProgressUpdatedEvent，完成态用于检测条件完成边沿
+        // 触发 TaskConditionCompletedEvent。键 = PackKey(taskId, conditionId)。
+        private readonly Dictionary<long, CondCache> _condCache = new();
 
         // push 静默标志：基座主动调 Reset/CacheConditionState 期间置 true，忽略扩展点的 notifier 回调。
         private bool _muted;
 
         // 单任务重入保护：评估某任务期间若同任务再次 push，置 pending 并在本次结束后补跑。
+        private bool _evaluating;
         private int _evaluatingTaskId;
         private bool _evaluatingPending;
 
+        /// <summary>单个条件的展示进度 + 完成态缓存。</summary>
+        private readonly struct CondCache
+        {
+            public readonly float Progress;
+            public readonly bool Completed;
+
+            public CondCache(float progress, bool completed)
+            {
+                Progress = progress;
+                Completed = completed;
+            }
+        }
+
         protected sealed override void OnInitialize()
         {
-            _store = GetStore<TaskStore>();
+            _repo = ResolveRepository();
         }
 
         protected sealed override void OnStart()
@@ -55,13 +64,14 @@ namespace JulyGame.Task
         {
             OnDispose();
 
-            foreach (var pair in _store.All)
+            foreach (var pair in _repo.All)
                 ClearExtensionSubscriptions(pair.Value);
 
-            _lastProgress.Clear();
-            _lastCompleted.Clear();
-            _resetIdBuffer.Clear();
+            _condCache.Clear();
         }
+
+        /// <summary>接入方返回本模块唯一的任务数据容器（通常持有于项目 Store 中）。</summary>
+        protected abstract TaskRepository ResolveRepository();
 
         /// <summary>接入方在此注册任务。基座启动时调用一次。</summary>
         protected abstract void OnConfigure();
@@ -76,21 +86,20 @@ namespace JulyGame.Task
 
         /// <summary>
         /// 注册一个任务交由基座托管。重复 TaskId 会覆盖。
-        /// 注册时基座会：绑定条件/规则/策略的 notifier、计算重置边界、对 Locked 立即 TryUnlock、
+        /// 注册时基座会：绑定条件/规则的 notifier、计算重置边界、对 Locked 立即 TryUnlock、
         /// 对 InProgress 缓存条件状态并做一次完成检查。
         /// </summary>
         public void RegisterTask(TaskData task)
         {
             if (task == null) return;
-            _store.Add(task);
+            _repo.Add(task);
 
             BindNotifiers(task);
-            ActivatePolicy(task);
 
-            if (task.ResetPolicy != null)
+            if (task.ResetPolicy != null && _repo.GetResetBoundary(task.TaskId) == 0)
             {
                 var boundary = task.ResetPolicy.GetNextResetUtc(OnGetUtcNow());
-                _store.SetResetBoundary(task.TaskId, boundary.Ticks);
+                _repo.SetResetBoundary(task.TaskId, boundary.Ticks);
             }
 
             SyncExtensionActivation(task);
@@ -116,13 +125,13 @@ namespace JulyGame.Task
         /// <returns>任务存在并被移除返回 true。</returns>
         public bool UnregisterTask(int id)
         {
-            var task = _store.Get(id);
+            var task = _repo.Get(id);
             if (task == null) return false;
 
             ClearExtensionSubscriptions(task);
             ClearConditionCache(task);
 
-            if (!_store.Remove(id)) return false;
+            if (!_repo.Remove(id)) return false;
 
             Publish(new TaskRemovedEvent { TaskId = id });
             return true;
@@ -135,10 +144,10 @@ namespace JulyGame.Task
         /// <summary>手动重置已完成任务回到 InProgress，并清零其条件进度。仅对 Completed 任务有效。</summary>
         public bool ResetTask(int id)
         {
-            var task = _store.Get(id);
+            var task = _repo.Get(id);
             if (task == null || task.State != ETaskState.Completed) return false;
 
-            _store.SetState(id, ETaskState.InProgress);
+            _repo.SetState(id, ETaskState.InProgress);
             ResetConditions(task);
             SyncExtensionActivation(task);
 
@@ -158,16 +167,16 @@ namespace JulyGame.Task
 
         #region Queries
 
-        public TaskData GetTask(int id) => _store.Get(id);
+        public TaskData GetTask(int id) => _repo.Get(id);
 
-        public IEnumerable<TaskData> GetAll() => _store.All.Values;
+        public IEnumerable<TaskData> GetAll() => _repo.All.Values;
 
         /// <summary>下一次重置的 UTC 时间；无重置策略返回 null。</summary>
         public DateTime? GetNextResetUtc(int id)
         {
-            var task = _store.Get(id);
+            var task = _repo.Get(id);
             if (task?.ResetPolicy == null) return null;
-            var ticks = _store.GetResetBoundary(id);
+            var ticks = _repo.GetResetBoundary(id);
             return ticks > 0 ? new DateTime(ticks, DateTimeKind.Utc) : null;
         }
 
@@ -175,42 +184,15 @@ namespace JulyGame.Task
 
         #region Save / Load
 
-        /// <summary>导出任务状态与重置边界为纯数据包，便于接入方持久化。</summary>
-        public TaskSaveBundle ExportData()
-        {
-            var bundle = new TaskSaveBundle();
-            foreach (var pair in _store.All)
-            {
-                bundle.states.Add(new TaskStateSave
-                {
-                    taskId = pair.Key,
-                    state = (int)pair.Value.State
-                });
-
-                var ticks = _store.GetResetBoundary(pair.Key);
-                if (ticks > 0)
-                {
-                    bundle.resetBoundaries.Add(new TaskBoundarySave
-                    {
-                        taskId = pair.Key,
-                        ticks = ticks
-                    });
-                }
-            }
-
-            return bundle;
-        }
-
-        /// <summary>从数据包恢复任务状态与重置边界。需在任务注册完成后调用。</summary>
+        /// <summary>从数据包恢复任务状态与重置边界，并按状态对齐扩展点激活。需在任务注册完成后调用。</summary>
         public void ImportData(TaskSaveBundle bundle)
         {
             if (bundle == null) return;
 
-            _store.ImportStates(bundle.states);
-            _store.ImportResetBoundaries(bundle.resetBoundaries);
+            _repo.Import(bundle);
 
             _muted = true;
-            foreach (var pair in _store.All)
+            foreach (var pair in _repo.All)
             {
                 SyncExtensionActivation(pair.Value);
 
@@ -232,16 +214,17 @@ namespace JulyGame.Task
         {
             var now = OnGetUtcNow();
 
-            _resetIdBuffer.Clear();
-            foreach (var pair in _store.All)
+            // 先快照 id：CheckAndResetTask 会改状态，不能在遍历 _repo.All 时直接重置。
+            var ids = new List<int>();
+            foreach (var pair in _repo.All)
             {
                 if (pair.Value.ResetPolicy != null)
-                    _resetIdBuffer.Add(pair.Key);
+                    ids.Add(pair.Key);
             }
 
-            for (var i = 0; i < _resetIdBuffer.Count; i++)
+            for (var i = 0; i < ids.Count; i++)
             {
-                var task = _store.Get(_resetIdBuffer[i]);
+                var task = _repo.Get(ids[i]);
                 if (task?.ResetPolicy == null) continue;
 
                 CheckAndResetTask(task, now);
@@ -256,10 +239,10 @@ namespace JulyGame.Task
         {
             if (_muted) return;
 
-            var task = _store.Get(taskId);
+            var task = _repo.Get(taskId);
             if (task == null || task.State != ETaskState.InProgress) return;
 
-            if (_evaluatingTaskId == taskId)
+            if (_evaluating && _evaluatingTaskId == taskId)
             {
                 _evaluatingPending = true;
                 return;
@@ -272,25 +255,16 @@ namespace JulyGame.Task
         {
             if (_muted) return;
 
-            var task = _store.Get(taskId);
+            var task = _repo.Get(taskId);
             if (task == null || task.State != ETaskState.Locked) return;
 
             TryUnlock(task);
         }
 
-        private void OnResetPolicyChanged(int taskId)
-        {
-            if (_muted) return;
-
-            var task = _store.Get(taskId);
-            if (task?.ResetPolicy == null) return;
-
-            CheckAndResetTask(task, OnGetUtcNow());
-        }
-
         /// <summary>评估单个 InProgress 任务：差量检测进度/完成，发事件，全部完成则流转。</summary>
         private void EvaluateInProgressTask(TaskData task)
         {
+            _evaluating = true;
             _evaluatingTaskId = task.TaskId;
             _evaluatingPending = false;
 
@@ -300,13 +274,13 @@ namespace JulyGame.Task
             }
             finally
             {
-                _evaluatingTaskId = 0;
+                _evaluating = false;
             }
 
             if (_evaluatingPending)
             {
                 _evaluatingPending = false;
-                task = _store.Get(task.TaskId);
+                task = _repo.Get(task.TaskId);
                 if (task != null && task.State == ETaskState.InProgress)
                     EvaluateInProgressTask(task);
             }
@@ -325,16 +299,15 @@ namespace JulyGame.Task
                 var newProgress = cond.Progress;
                 var isCompleted = cond.IsCompleted;
 
-                _lastProgress.TryGetValue(cacheKey, out var oldProgress);
-                _lastCompleted.TryGetValue(cacheKey, out var wasCompleted);
+                _condCache.TryGetValue(cacheKey, out var cached);
+                var oldProgress = cached.Progress;
+                var wasCompleted = cached.Completed;
 
                 var justCompleted = isCompleted && !wasCompleted;
                 var progressChanged = Math.Abs(newProgress - oldProgress) > 1e-6f;
 
                 if (progressChanged || justCompleted)
                 {
-                    _lastProgress[cacheKey] = newProgress;
-
                     Publish(new TaskProgressUpdatedEvent
                     {
                         TaskId = task.TaskId,
@@ -345,8 +318,8 @@ namespace JulyGame.Task
                     });
                 }
 
-                if (isCompleted != wasCompleted)
-                    _lastCompleted[cacheKey] = isCompleted;
+                if (progressChanged || isCompleted != wasCompleted)
+                    _condCache[cacheKey] = new CondCache(newProgress, isCompleted);
 
                 if (justCompleted)
                 {
@@ -363,7 +336,7 @@ namespace JulyGame.Task
 
             if (allCompleted && task.Conditions.Count > 0)
             {
-                _store.SetState(task.TaskId, ETaskState.Completed);
+                _repo.SetState(task.TaskId, ETaskState.Completed);
                 SyncExtensionActivation(task);
 
                 Publish(new TaskStateChangedEvent
@@ -387,22 +360,22 @@ namespace JulyGame.Task
         private void CheckAndResetTask(TaskData task, DateTime utcNow)
         {
             var boundary = task.ResetPolicy.GetNextResetUtc(utcNow);
-            var savedTicks = _store.GetResetBoundary(task.TaskId);
+            var savedTicks = _repo.GetResetBoundary(task.TaskId);
 
             if (savedTicks == 0)
             {
-                _store.SetResetBoundary(task.TaskId, boundary.Ticks);
+                _repo.SetResetBoundary(task.TaskId, boundary.Ticks);
                 return;
             }
 
             if (boundary.Ticks != savedTicks)
             {
-                _store.SetResetBoundary(task.TaskId, boundary.Ticks);
+                _repo.SetResetBoundary(task.TaskId, boundary.Ticks);
 
                 if (task.State == ETaskState.Completed || task.State == ETaskState.InProgress)
                 {
                     var oldState = task.State;
-                    _store.SetState(task.TaskId, ETaskState.InProgress);
+                    _repo.SetState(task.TaskId, ETaskState.InProgress);
                     ResetConditions(task);
                     SyncExtensionActivation(task);
 
@@ -429,7 +402,7 @@ namespace JulyGame.Task
         /// <summary>
         /// 按任务当前状态同步扩展点的激活/休眠。幂等，重复调用安全。
         /// Condition 当且仅当 InProgress 活动；UnlockRule 当且仅当 Locked 活动。
-        /// ResetPolicy 全程活动，由 ActivatePolicy/ClearExtensionSubscriptions 管理。
+        /// ResetPolicy 不参与激活窗口，仅在 SweepResets 时被查询。
         /// </summary>
         private void SyncExtensionActivation(TaskData task)
         {
@@ -463,11 +436,6 @@ namespace JulyGame.Task
             }
         }
 
-        private void ActivatePolicy(TaskData task)
-        {
-            (task.ResetPolicy as TaskResetPolicyBase)?.Activate();
-        }
-
         private void BindNotifiers(TaskData task)
         {
             var taskId = task.TaskId;
@@ -489,16 +457,10 @@ namespace JulyGame.Task
                     task.UnlockRules[i].BindChangeNotifier(() => OnUnlockRuleChanged(id));
                 }
             }
-
-            if (task.ResetPolicy != null)
-            {
-                var id = taskId;
-                task.ResetPolicy.BindChangeNotifier(() => OnResetPolicyChanged(id));
-            }
         }
 
         /// <summary>
-        /// 清理任务三类扩展点中继承了辅助基类者订阅的游戏事件。
+        /// 清理任务中继承了辅助基类的条件/解锁规则订阅的游戏事件。
         /// 直接实现接口而未继承 Base 的扩展点由接入方自行负责清理。
         /// </summary>
         private void ClearExtensionSubscriptions(TaskData task)
@@ -514,8 +476,6 @@ namespace JulyGame.Task
                 for (var i = 0; i < task.UnlockRules.Count; i++)
                     (task.UnlockRules[i] as TaskUnlockRuleBase)?.ClearSubscriptions();
             }
-
-            (task.ResetPolicy as TaskResetPolicyBase)?.ClearSubscriptions();
         }
 
         private bool CanUnlockByRules(TaskData task)
@@ -542,7 +502,7 @@ namespace JulyGame.Task
 
         private void TransitionToInProgress(TaskData task)
         {
-            _store.SetState(task.TaskId, ETaskState.InProgress);
+            _repo.SetState(task.TaskId, ETaskState.InProgress);
             ResetConditions(task);
             SyncExtensionActivation(task);
 
@@ -585,8 +545,7 @@ namespace JulyGame.Task
             {
                 var cond = task.Conditions[i];
                 var key = PackKey(task.TaskId, cond.ConditionId);
-                _lastProgress[key] = cond.Progress;
-                _lastCompleted[key] = cond.IsCompleted;
+                _condCache[key] = new CondCache(cond.Progress, cond.IsCompleted);
             }
         }
 
@@ -598,8 +557,7 @@ namespace JulyGame.Task
             for (var i = 0; i < task.Conditions.Count; i++)
             {
                 var key = PackKey(task.TaskId, task.Conditions[i].ConditionId);
-                _lastProgress.Remove(key);
-                _lastCompleted.Remove(key);
+                _condCache.Remove(key);
             }
         }
 

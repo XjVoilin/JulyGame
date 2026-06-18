@@ -5,7 +5,7 @@ namespace JulyGame.Guide
 {
     public abstract class GuideSystemBase : GameSystemBase
     {
-        private GuideStore _store;
+        private GuideRepository _repo;
 
         private IGuidePresenter _presenter;
         private IGuideDataProvider _dataProvider;
@@ -16,8 +16,10 @@ namespace JulyGame.Guide
 
         protected sealed override void OnInitialize()
         {
-            _store = GetStore<GuideStore>();
+            _repo = ResolveRepository();
         }
+
+        protected abstract GuideRepository ResolveRepository();
 
         protected sealed override void OnStart()
         {
@@ -57,7 +59,7 @@ namespace JulyGame.Guide
             if (handler == null || string.IsNullOrEmpty(handler.FlowId))
                 return false;
 
-            if (_store.IsFlowCompleted(handler.FlowId))
+            if (_repo.IsFlowCompleted(handler.FlowId))
             {
                 handler.Dispose();
                 return false;
@@ -100,10 +102,10 @@ namespace JulyGame.Guide
             if (_isFlowActive)
                 return false;
 
-            if (_store.IsFlowCompleted(flowId))
+            if (_repo.IsFlowCompleted(flowId))
                 return false;
 
-            var interruptedFlowId = _store.GetCurrentFlowId();
+            var interruptedFlowId = _repo.GetCurrentFlowId();
             if (!string.IsNullOrEmpty(interruptedFlowId))
             {
                 if (interruptedFlowId == flowId)
@@ -124,11 +126,11 @@ namespace JulyGame.Guide
 
         public void SkipCurrentFlow(string reason = null)
         {
-            var flowId = _store.GetCurrentFlowId();
+            var flowId = _repo.GetCurrentFlowId();
             if (string.IsNullOrEmpty(flowId))
                 return;
 
-            var stepId = _store.GetCurrentStepId();
+            var stepId = _repo.GetCurrentStepId();
             if (!string.IsNullOrEmpty(stepId) && _dataProvider != null)
             {
                 var stepData = _dataProvider.GetStep(flowId, stepId);
@@ -145,8 +147,8 @@ namespace JulyGame.Guide
             }
 
             DisposeHandler(flowId);
-            _store.MarkFlowCompleted(flowId);
-            _store.ClearCurrentStep();
+            _repo.MarkFlowCompleted(flowId);
+            _repo.ClearCurrentStep();
             _isFlowActive = false;
 
             _presenter?.OnFlowComplete(flowId);
@@ -155,8 +157,8 @@ namespace JulyGame.Guide
 
         public void CompleteCurrentStep()
         {
-            var flowId = _store.GetCurrentFlowId();
-            var stepId = _store.GetCurrentStepId();
+            var flowId = _repo.GetCurrentFlowId();
+            var stepId = _repo.GetCurrentStepId();
 
             if (string.IsNullOrEmpty(flowId) || string.IsNullOrEmpty(stepId))
                 return;
@@ -165,7 +167,7 @@ namespace JulyGame.Guide
             if (stepData == null)
                 return;
 
-            _store.MarkStepCompleted(flowId, stepId);
+            _repo.MarkStepCompleted(flowId, stepId);
             _presenter?.OnStepExit(stepData);
             Publish(new GuideStepExitedEvent
             {
@@ -182,8 +184,8 @@ namespace JulyGame.Guide
 
         public void SkipCurrentStep()
         {
-            var flowId = _store.GetCurrentFlowId();
-            var stepId = _store.GetCurrentStepId();
+            var flowId = _repo.GetCurrentFlowId();
+            var stepId = _repo.GetCurrentStepId();
 
             if (string.IsNullOrEmpty(flowId) || string.IsNullOrEmpty(stepId))
                 return;
@@ -211,9 +213,9 @@ namespace JulyGame.Guide
         #region Queries
 
         public bool IsFlowRunning() => _isFlowActive;
-        public string GetCurrentFlowId() => _store.GetCurrentFlowId();
-        public string GetCurrentStepId() => _store.GetCurrentStepId();
-        public bool IsFlowCompleted(string flowId) => _store.IsFlowCompleted(flowId);
+        public string GetCurrentFlowId() => _repo.GetCurrentFlowId();
+        public string GetCurrentStepId() => _repo.GetCurrentStepId();
+        public bool IsFlowCompleted(string flowId) => _repo.IsFlowCompleted(flowId);
 
         #endregion
 
@@ -222,18 +224,8 @@ namespace JulyGame.Guide
         /// <summary>清空全部引导进度（已完成流程/步骤、当前进度）。存储清理由项目层负责。</summary>
         public void ClearAll()
         {
-            _store.ClearProgress();
+            _repo.ClearProgress();
             _isFlowActive = false;
-        }
-
-        /// <summary>导出引导进度为纯数据包，便于接入方持久化。</summary>
-        public GuideProgressData ExportData() => _store.ExportToSaveData();
-
-        /// <summary>从数据包恢复引导进度。需在 OnConfigure 注册流程后调用。</summary>
-        public void ImportData(GuideProgressData data)
-        {
-            if (data == null) return;
-            _store.ImportFromSaveData(data);
         }
 
         #endregion
@@ -262,7 +254,7 @@ namespace JulyGame.Guide
 
         private bool ResumeFlowInternal(string flowId)
         {
-            var stepId = _store.GetCurrentStepId();
+            var stepId = _repo.GetCurrentStepId();
 
             if (_dataProvider == null)
                 return false;
@@ -270,7 +262,7 @@ namespace JulyGame.Guide
             var flowData = _dataProvider.GetFlow(flowId);
             if (flowData == null)
             {
-                _store.ClearCurrentStep();
+                _repo.ClearCurrentStep();
                 return false;
             }
 
@@ -306,7 +298,7 @@ namespace JulyGame.Guide
 
             while (!string.IsNullOrEmpty(currentStepId))
             {
-                if (!_store.IsStepCompleted(flowId, currentStepId))
+                if (!_repo.IsStepCompleted(flowId, currentStepId))
                     return currentStepId;
 
                 var stepData = _dataProvider.GetStep(flowId, currentStepId);
@@ -333,7 +325,7 @@ namespace JulyGame.Guide
                 return;
             }
 
-            _store.SetCurrentStep(flowId, stepId);
+            _repo.SetCurrentStep(flowId, stepId);
             _presenter?.OnStepEnter(stepData);
             Publish(new GuideStepEnteredEvent { FlowId = flowId, StepId = stepId });
         }
@@ -341,8 +333,8 @@ namespace JulyGame.Guide
         private void CompleteFlow(string flowId)
         {
             DisposeHandler(flowId);
-            _store.MarkFlowCompleted(flowId);
-            _store.ClearCurrentStep();
+            _repo.MarkFlowCompleted(flowId);
+            _repo.ClearCurrentStep();
             _isFlowActive = false;
 
             _presenter?.OnFlowComplete(flowId);

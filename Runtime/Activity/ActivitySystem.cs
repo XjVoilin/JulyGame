@@ -9,14 +9,14 @@ namespace JulyGame.Activity
     {
         private const float StateCheckInterval = 60f;
 
-        private ActivityStore _store;
+        private ActivityRepository _repo;
         private readonly HashSet<string> _newlyOpenedIds = new();
         private float _lastStateCheckTime;
         private bool _isReady;
 
         protected sealed override void OnInitialize()
         {
-            _store = GetStore<ActivityStore>();
+            _repo = ResolveRepository();
             _isReady = false;
             _lastStateCheckTime = 0f;
         }
@@ -36,12 +36,14 @@ namespace JulyGame.Activity
         protected abstract void OnConfigure();
         protected virtual void OnDispose() { }
 
+        protected abstract ActivityRepository ResolveRepository();
+
         /// <summary>服务器 UTC 时间戳（秒）。可覆写以接入对时或便于测试。</summary>
         protected virtual long OnGetServerTimeUtc() => GF.Time.ServerTimeUtcTimestamp;
 
         public void OnUpdate(float deltaTime)
         {
-            if (!_isReady || _store.Definitions.Count == 0)
+            if (!_isReady || _repo.Definitions.Count == 0)
                 return;
 
             _lastStateCheckTime += GF.Time.UnscaledDeltaTime;
@@ -57,8 +59,8 @@ namespace JulyGame.Activity
             if (definition == null || string.IsNullOrEmpty(definition.Id))
                 return;
 
-            _store.RegisterDefinition(definition);
-            _store.SetCachedState(
+            _repo.RegisterDefinition(definition);
+            _repo.SetCachedState(
                 definition.Id,
                 CalculateState(definition.PreAnnounceTime, definition.StartTime, definition.EndTime));
         }
@@ -77,7 +79,7 @@ namespace JulyGame.Activity
                 return false;
 
             _newlyOpenedIds.Remove(activityId);
-            return _store.UnregisterDefinition(activityId);
+            return _repo.UnregisterDefinition(activityId);
         }
 
         public void CompleteRegistration()
@@ -90,10 +92,10 @@ namespace JulyGame.Activity
 
             Publish(new ActivityRegisteredEvent
             {
-                RegisteredCount = _store.Definitions.Count
+                RegisteredCount = _repo.Definitions.Count
             });
 
-            var activeCount = _store.StateCache.Values.Count(state => state == ActivityState.InProgress);
+            var activeCount = _repo.StateCache.Values.Count(state => state == ActivityState.InProgress);
             Publish(new ActivityModuleReadyEvent
             {
                 ActiveCount = activeCount,
@@ -103,8 +105,8 @@ namespace JulyGame.Activity
 
         public List<ActivityInfo> GetAllActivities()
         {
-            var result = new List<ActivityInfo>(_store.Definitions.Count);
-            foreach (var pair in _store.Definitions)
+            var result = new List<ActivityInfo>(_repo.Definitions.Count);
+            foreach (var pair in _repo.Definitions)
                 result.Add(BuildActivityInfo(pair.Key, pair.Value));
 
             return result.OrderBy(info => info.Definition.Priority).ToList();
@@ -115,7 +117,7 @@ namespace JulyGame.Activity
             if (string.IsNullOrEmpty(activityId))
                 return null;
 
-            return _store.TryGetDefinition(activityId, out var definition)
+            return _repo.TryGetDefinition(activityId, out var definition)
                 ? BuildActivityInfo(activityId, definition)
                 : null;
         }
@@ -135,13 +137,13 @@ namespace JulyGame.Activity
             if (string.IsNullOrEmpty(activityId))
                 return ActivityState.NotStarted;
 
-            if (_store.TryGetCachedState(activityId, out var state))
+            if (_repo.TryGetCachedState(activityId, out var state))
                 return state;
 
-            if (_store.TryGetDefinition(activityId, out var definition))
+            if (_repo.TryGetDefinition(activityId, out var definition))
             {
                 state = CalculateState(definition.PreAnnounceTime, definition.StartTime, definition.EndTime);
-                _store.SetCachedState(activityId, state);
+                _repo.SetCachedState(activityId, state);
                 return state;
             }
 
@@ -150,7 +152,7 @@ namespace JulyGame.Activity
 
         public bool HasActivity(string activityId)
         {
-            return !string.IsNullOrEmpty(activityId) && _store.Definitions.ContainsKey(activityId);
+            return !string.IsNullOrEmpty(activityId) && _repo.Definitions.ContainsKey(activityId);
         }
 
         public ActivityState CalculateState(long preAnnounceTime, long startTime, long endTime)
@@ -176,7 +178,7 @@ namespace JulyGame.Activity
 
         public ActivityRecord GetActivityRecord(string activityId)
         {
-            return _store.TryGetRecord(activityId, out var record) ? record : null;
+            return _repo.TryGetRecord(activityId, out var record) ? record : null;
         }
 
         public void SaveProgressData(string activityId, string dataPayload)
@@ -184,10 +186,10 @@ namespace JulyGame.Activity
             if (string.IsNullOrEmpty(activityId))
                 return;
 
-            var record = _store.GetOrCreateRecord(activityId);
+            var record = _repo.GetOrCreateRecord(activityId);
             record.DataPayload = dataPayload;
             record.LastUpdateTime = OnGetServerTimeUtc();
-            _store.UpdateRecord(record);
+            _repo.UpdateRecord(record);
 
             Publish(new ActivityProgressChangedEvent
             {
@@ -203,26 +205,16 @@ namespace JulyGame.Activity
 
         public void ClearActivityData(string activityId)
         {
-            _store.ClearActivityData(activityId);
-        }
-
-        /// <summary>导出活动运行时数据（记录 + 已开启标记）为纯数据包，便于接入方持久化。</summary>
-        public ActivityRuntimeData ExportData() => _store.ExportRuntime();
-
-        /// <summary>从数据包恢复活动运行时数据。需在活动注册前调用，再 CompleteRegistration。</summary>
-        public void ImportData(ActivityRuntimeData data)
-        {
-            if (data == null) return;
-            _store.ImportRuntime(data);
+            _repo.ClearActivityData(activityId);
         }
 
         private void CheckAndUpdateStates()
         {
-            foreach (var pair in _store.Definitions)
+            foreach (var pair in _repo.Definitions)
             {
                 var activityId = pair.Key;
                 var definition = pair.Value;
-                var oldState = _store.TryGetCachedState(activityId, out var cachedState)
+                var oldState = _repo.TryGetCachedState(activityId, out var cachedState)
                     ? cachedState
                     : ActivityState.NotStarted;
                 var newState = CalculateState(definition.PreAnnounceTime, definition.StartTime, definition.EndTime);
@@ -230,26 +222,26 @@ namespace JulyGame.Activity
                 if (oldState == newState)
                     continue;
 
-                _store.SetCachedState(activityId, newState);
+                _repo.SetCachedState(activityId, newState);
                 OnActivityStateChanged(activityId, definition, oldState, newState);
             }
         }
 
         private void ProcessActivityStates()
         {
-            foreach (var pair in _store.Definitions)
+            foreach (var pair in _repo.Definitions)
             {
                 var activityId = pair.Key;
                 var definition = pair.Value;
-                var state = _store.TryGetCachedState(activityId, out var cachedState)
+                var state = _repo.TryGetCachedState(activityId, out var cachedState)
                     ? cachedState
                     : ActivityState.NotStarted;
 
-                if (state != ActivityState.InProgress || _store.IsActivityOpened(activityId))
+                if (state != ActivityState.InProgress || _repo.IsActivityOpened(activityId))
                     continue;
 
                 _newlyOpenedIds.Add(activityId);
-                _store.MarkOpened(activityId);
+                _repo.MarkOpened(activityId);
                 Publish(new ActivityOpenedEvent
                 {
                     ActivityId = activityId,
@@ -267,10 +259,10 @@ namespace JulyGame.Activity
             if (newState == ActivityState.InProgress &&
                 (oldState == ActivityState.NotStarted || oldState == ActivityState.PreAnnounce))
             {
-                if (!_store.IsActivityOpened(activityId))
+                if (!_repo.IsActivityOpened(activityId))
                 {
                     _newlyOpenedIds.Add(activityId);
-                    _store.MarkOpened(activityId);
+                    _repo.MarkOpened(activityId);
                 }
 
                 Publish(new ActivityOpenedEvent
