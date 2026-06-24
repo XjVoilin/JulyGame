@@ -9,7 +9,7 @@ namespace JulyGame.RedDot
     /// 使用方式：将红点 Prefab 拖到目标节点下 → Inspector 选 Key → 完成。
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class UIRedDot : MonoBehaviour, ICanGetSystem
+    public class UIRedDot : ArchBehaviour, ICanGetSystem
     {
         private const string NumberOverflow = "99+";
 
@@ -29,8 +29,6 @@ namespace JulyGame.RedDot
 
         public bool IsVisible => _activeVisual != null && _activeVisual.activeSelf;
         public string Key => _key;
-
-        public IArchContext GetArchitecture() => GameArch.Context;
 
         private void OnEnable()
         {

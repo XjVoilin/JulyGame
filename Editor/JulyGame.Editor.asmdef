@@ -3,7 +3,6 @@
     "rootNamespace": "JulyGame.Editor",
     "references": [
         "JulyGame.Runtime",
-        "JulyCore.Runtime",
         "JulyEvents.Runtime"
     ],
     "includePlatforms": [

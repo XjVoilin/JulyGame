@@ -14,8 +14,6 @@ namespace JulyGame.Task
         private Action _onChanged;
         private bool _active;
 
-        public IArchContext GetArchitecture() => GameArch.Context;
-
         public abstract int ConditionId { get; }
         public abstract bool IsCompleted { get; }
         public abstract float Progress { get; }

@@ -10,8 +10,6 @@ namespace JulyGame.RedDot
     {
         private RedDotSystemBase _system;
 
-        public IArchContext GetArchitecture() => GameArch.Context;
-
         protected abstract string Key { get; }
         protected abstract int ComputeCount();
         protected virtual void OnSubscribeEvents() { }

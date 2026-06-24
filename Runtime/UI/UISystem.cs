@@ -1,0 +1,730 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using Cysharp.Threading.Tasks;
+using JulyArch;
+using UnityEngine;
+using UnityEngine.UI;
+using Object = UnityEngine.Object;
+
+namespace JulyGame
+{
+    public class UISystem : SystemBase, IUISystem
+    {
+        private static readonly UILayer[] AllLayers = (UILayer[])Enum.GetValues(typeof(UILayer));
+
+        private readonly List<UIInfo> _stack = new();
+        private readonly Dictionary<int, UIInfo> _openWindows = new();
+        private readonly Dictionary<int, GameObject> _windowMasks = new();
+        private readonly Dictionary<string, ResourceHandle<GameObject>> _preloadedPrefabs = new();
+        private TipManager _tipManager;
+
+        #region UIRoot Physical Stage
+
+        private GameObject _uiRootGo;
+        private Camera _uiCamera;
+        private Transform _stagingRoot;
+        private readonly Dictionary<UILayer, Canvas> _layerCanvases = new();
+        private readonly Dictionary<UILayer, Transform> _layerTransforms = new();
+        private readonly Dictionary<UILayer, Transform> _safeAreaRoots = new();
+
+        private GameObject _maskRoot;
+        private bool _maskActive;
+
+        public Camera UICamera => _uiCamera;
+        public Transform StagingRoot => _stagingRoot;
+        public bool IsMaskActive => _maskActive;
+
+        public Transform GetLayer(UILayer layer)
+        {
+            if (_layerTransforms.TryGetValue(layer, out var t))
+                return t;
+            return CreateLayerRoot(layer);
+        }
+
+        private Transform GetSafeAreaRoot(UILayer layer)
+        {
+            if (_safeAreaRoots.TryGetValue(layer, out var t))
+                return t;
+
+            var layerTransform = GetLayer(layer);
+            if (layerTransform == null) return null;
+
+            var safeAreaGo = new GameObject("SafeArea");
+            safeAreaGo.transform.SetParent(layerTransform, false);
+            var safeRect = safeAreaGo.AddComponent<RectTransform>();
+            safeRect.anchorMin = Vector2.zero;
+            safeRect.anchorMax = Vector2.one;
+            safeRect.offsetMin = Vector2.zero;
+            safeRect.offsetMax = Vector2.zero;
+            safeAreaGo.AddComponent<SafeAreaAdapter>();
+
+            _safeAreaRoots[layer] = safeAreaGo.transform;
+            return safeAreaGo.transform;
+        }
+
+        public Canvas GetLayerCanvas(UILayer layer)
+        {
+            if (!_layerCanvases.ContainsKey(layer))
+                CreateLayerRoot(layer);
+            _layerCanvases.TryGetValue(layer, out var c);
+            return c;
+        }
+
+        private Transform CreateLayerRoot(UILayer layer)
+        {
+            var layerGo = new GameObject($"Layer_{layer}");
+            layerGo.transform.SetParent(_uiRootGo.transform, false);
+            layerGo.layer = LayerMask.NameToLayer("UI");
+
+            var canvas = layerGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = _uiCamera;
+            canvas.sortingOrder = (int)layer;
+
+            var scaler = layerGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = _designResolution;
+            scaler.matchWidthOrHeight = _screenMatchMode;
+
+            layerGo.AddComponent<GraphicRaycaster>();
+
+            _layerCanvases[layer] = canvas;
+            _layerTransforms[layer] = layerGo.transform;
+            return layerGo.transform;
+        }
+
+        public void ShowMask()
+        {
+            if (_maskRoot == null) CreateMask();
+            if (_maskActive) return;
+            _maskRoot.SetActive(true);
+            _maskActive = true;
+        }
+
+        public void HideMask()
+        {
+            if (!_maskActive) return;
+            if (_maskRoot != null) _maskRoot.SetActive(false);
+            _maskActive = false;
+        }
+
+        private void CreateUIRoot()
+        {
+            _uiRootGo = new GameObject("[UIRoot]");
+            Object.DontDestroyOnLoad(_uiRootGo);
+
+            var cameraGo = new GameObject("UICamera");
+            cameraGo.transform.SetParent(_uiRootGo.transform, false);
+            _uiCamera = cameraGo.AddComponent<Camera>();
+            _uiCamera.clearFlags = CameraClearFlags.Depth;
+            _uiCamera.cullingMask = 1 << LayerMask.NameToLayer("UI");
+            _uiCamera.orthographic = true;
+            _uiCamera.orthographicSize = 5f;
+            _uiCamera.depth = 10;
+            _uiCamera.nearClipPlane = 0.1f;
+            _uiCamera.farClipPlane = 1000f;
+
+            var stagingGo = new GameObject("[UI_Staging]");
+            stagingGo.SetActive(false);
+            Object.DontDestroyOnLoad(stagingGo);
+            stagingGo.hideFlags = HideFlags.HideInHierarchy;
+            _stagingRoot = stagingGo.transform;
+        }
+
+        private void CreateMask()
+        {
+            if (_maskRoot != null) return;
+
+            _maskRoot = new GameObject("[UI Mask]");
+            Object.DontDestroyOnLoad(_maskRoot);
+
+            var canvas = _maskRoot.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 32767;
+            _maskRoot.AddComponent<GraphicRaycaster>();
+
+            var imageGo = new GameObject("Blocker");
+            imageGo.transform.SetParent(_maskRoot.transform, false);
+
+            var image = imageGo.AddComponent<Image>();
+            image.color = Color.clear;
+            image.raycastTarget = true;
+
+            var rect = imageGo.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            _maskRoot.SetActive(false);
+            _maskActive = false;
+        }
+
+        private void ShutdownUIRoot()
+        {
+            if (_maskRoot != null)
+            {
+                Object.Destroy(_maskRoot);
+                _maskRoot = null;
+            }
+            _maskActive = false;
+
+            if (_uiRootGo != null)
+                Object.Destroy(_uiRootGo);
+            if (_stagingRoot != null)
+                Object.Destroy(_stagingRoot.gameObject);
+
+            _uiRootGo = null;
+            _uiCamera = null;
+            _stagingRoot = null;
+            _layerCanvases.Clear();
+            _layerTransforms.Clear();
+            _safeAreaRoots.Clear();
+        }
+
+        #endregion
+
+        #region Configuration
+
+        private Vector2 _designResolution = new(1080, 1920);
+        private float _screenMatchMode = 0.5f;
+
+        public Vector2 DesignResolution
+        {
+            get => _designResolution;
+            set
+            {
+                _designResolution = value;
+                ApplyResolutionToAllLayers();
+            }
+        }
+
+        public float ScreenMatchMode
+        {
+            get => _screenMatchMode;
+            set
+            {
+                _screenMatchMode = value;
+                ApplyResolutionToAllLayers();
+            }
+        }
+
+        private void ApplyResolutionToAllLayers()
+        {
+            foreach (var kvp in _layerCanvases)
+            {
+                var scaler = kvp.Value.GetComponent<CanvasScaler>();
+                if (scaler != null)
+                {
+                    scaler.referenceResolution = _designResolution;
+                    scaler.matchWidthOrHeight = _screenMatchMode;
+                }
+            }
+        }
+
+        #endregion
+
+        #region ISupportMultipleSource
+
+        public IUIWindowProvider MainProvider { get; private set; }
+        public IUIWindowProvider AdditionalProvider { get; private set; }
+
+        public void SetMainProvider(IUIWindowProvider provider) => MainProvider = provider;
+        public void SetAdditionalProvider(IUIWindowProvider provider) => AdditionalProvider = provider;
+
+        public void UnsetAdditionalProvider(IUIWindowProvider provider)
+        {
+            if (AdditionalProvider == provider) AdditionalProvider = null;
+        }
+
+        #endregion
+
+        #region Lifecycle
+
+        protected override void OnInitialize()
+        {
+            CreateUIRoot();
+            InitTipManager();
+        }
+
+        protected override void OnShutdown()
+        {
+            CloseAll(destroy: true);
+            ReleaseAllMasks();
+            ReleaseAllPreloads();
+            MainProvider = null;
+            AdditionalProvider = null;
+            _tipManager?.Shutdown();
+            _tipManager = null;
+            ShutdownUIRoot();
+        }
+
+        #endregion
+
+        public UIOpenOptions GetWindowConfig(int windowId) => ResolveOptions(windowId);
+
+        #region Open
+
+        public void Open(int windowId, object data = null, CancellationToken ct = default)
+        {
+            OpenAsync(windowId, data, ct).Forget();
+        }
+
+        public async UniTask<UIView> OpenAsync(int windowId, object data = null, CancellationToken ct = default)
+        {
+            var options = ResolveOptions(windowId);
+            if (options == null) return null;
+
+            options.Data = data;
+            return await OpenAsync(options, ct);
+        }
+
+        public async UniTask<UIView> OpenAsync(UIOpenOptions options, CancellationToken ct = default)
+        {
+            if (options == null) return null;
+
+            var windowId = options.WindowIdentifier.ID;
+            if (_openWindows.ContainsKey(windowId))
+            {
+                Debug.LogWarning($"[UISystem] Window {windowId} already open, ignoring");
+                return _openWindows[windowId].View;
+            }
+
+            var go = await LoadWindowPrefab(options.WindowIdentifier.WindowName, ct);
+            if (go == null) return null;
+
+            var view = go.GetComponent<UIView>();
+            if (view == null)
+            {
+                Debug.LogError($"[UISystem] Prefab '{options.WindowIdentifier.WindowName}' missing UIView component");
+                Object.Destroy(go);
+                return null;
+            }
+
+            view.WindowId = windowId;
+            view.InternalSetData(options.Data);
+
+            var canvasGroup = go.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+                canvasGroup = go.AddComponent<CanvasGroup>();
+
+            Transform parentTransform;
+            if (options.IgnoreSafeArea)
+            {
+                parentTransform = GetLayer(options.Layer);
+            }
+            else
+            {
+                parentTransform = GetSafeAreaRoot(options.Layer);
+            }
+            go.transform.SetParent(parentTransform, false);
+
+            if (options.ShowMask)
+                RequestMask(windowId, parentTransform, options.MaskColor, options.ClickMaskToClose, go.transform);
+
+            var uiInfo = new UIInfo
+            {
+                View = view,
+                WindowId = windowId,
+                WindowIdentifier = options.WindowIdentifier,
+                Layer = options.Layer,
+                IgnoreSafeArea = options.IgnoreSafeArea,
+                CanvasGroup = canvasGroup,
+                CloseAnimationType = options.CloseAnimationType,
+            };
+
+            if (canvasGroup != null)
+            {
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+
+            view.InternalBeforeOpen();
+
+            var strategy = GetAnimationStrategy(options.OpenAnimationType);
+            await strategy.PlayAsync(go, true, ct);
+
+            if (canvasGroup != null)
+            {
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+
+            view.InternalOpen();
+
+            if (options.AddToStack)
+                _stack.Add(uiInfo);
+            _openWindows[windowId] = uiInfo;
+
+            this.Publish(new UIOpenEvent(windowId, options.WindowIdentifier.WindowName, options.Layer, options.Data));
+
+            return view;
+        }
+
+        public async UniTask<FrameworkResult<UIView>> TryOpenAsync(UIOpenOptions options,
+            CancellationToken ct = default)
+        {
+            if (options == null)
+                return FrameworkResult<UIView>.Failure(FrameworkErrorCode.InvalidArgument, "UIOpenOptions不能为空");
+
+            try
+            {
+                var view = await OpenAsync(options, ct);
+                if (view == null)
+                    return FrameworkResult<UIView>.Failure(FrameworkErrorCode.UIOpenFailed,
+                        $"UI打开失败: {options.WindowIdentifier}");
+
+                return FrameworkResult<UIView>.Success(view);
+            }
+            catch (OperationCanceledException)
+            {
+                return FrameworkResult<UIView>.Failure(FrameworkErrorCode.Cancelled, "UI打开被取消");
+            }
+            catch (Exception ex)
+            {
+                return FrameworkResult<UIView>.Failure(FrameworkErrorCode.UIOpenFailed,
+                    $"UI打开失败: {ex.Message}", ex);
+            }
+        }
+
+        #endregion
+
+        #region Close
+
+        public void Close(int windowId, bool destroy = false, UIAnimationType? animationType = null)
+        {
+            CloseInternal(windowId, destroy, animationType).Forget();
+        }
+
+        public void Close(UIView view, bool destroy = false, UIAnimationType? animationType = null)
+        {
+            if (view == null) return;
+            Close(view.WindowId, destroy, animationType);
+        }
+
+        public UniTask CloseAsync(int windowId, bool destroy = false, UIAnimationType? animationType = null,
+            CancellationToken ct = default)
+        {
+            return CloseInternal(windowId, destroy, animationType, ct);
+        }
+
+        public UniTask CloseAsync(UIView view, bool destroy = false, UIAnimationType? animationType = null,
+            CancellationToken ct = default)
+        {
+            if (view == null) return UniTask.CompletedTask;
+            return CloseAsync(view.WindowId, destroy, animationType, ct);
+        }
+
+        public void CloseAll(bool destroy = false)
+        {
+            var ids = new List<int>(_openWindows.Keys);
+            foreach (var id in ids)
+                CloseImmediate(id, destroy);
+        }
+
+        public void CloseLayer(UILayer layer, bool destroy = false, int excludeWindowId = -1)
+        {
+            var ids = new List<int>();
+            foreach (var kvp in _openWindows)
+            {
+                if (kvp.Value.Layer == layer && kvp.Key != excludeWindowId)
+                    ids.Add(kvp.Key);
+            }
+            foreach (var id in ids)
+                CloseImmediate(id, destroy);
+        }
+
+        public bool GoBack()
+        {
+            if (_stack.Count == 0) return false;
+            var top = _stack[_stack.Count - 1];
+            Close(top.WindowId);
+            return true;
+        }
+
+        #endregion
+
+        #region Query
+
+        public bool IsOpen(int windowId) => _openWindows.ContainsKey(windowId);
+
+        public bool TryGet(int windowId, out UIView view)
+        {
+            if (_openWindows.TryGetValue(windowId, out var info))
+            {
+                view = info.View;
+                return true;
+            }
+            view = null;
+            return false;
+        }
+
+        public bool TryGetUIInfo(int windowId, out UIInfo info)
+        {
+            return _openWindows.TryGetValue(windowId, out info);
+        }
+
+        public int GetStackDepth() => _stack.Count;
+
+        public int GetLayerUICount(UILayer layer)
+        {
+            return _openWindows.Count(kvp => kvp.Value.Layer == layer);
+        }
+
+        #endregion
+
+        #region Tip
+
+        public void ShowTip(string message, float duration = 2f)
+        {
+            if (_tipManager == null)
+            {
+                Debug.LogWarning($"[UISystem] TipManager not initialized: {message}");
+                return;
+            }
+            _tipManager.Show(message, duration);
+        }
+
+        private void InitTipManager()
+        {
+            _tipManager = new TipManager(() => GetSystem<IResourceSystem>());
+            _tipManager.Initialize();
+        }
+
+        #endregion
+
+        #region Preload
+
+        public async UniTask PreloadAsync(string windowName, CancellationToken ct = default)
+        {
+            if (_preloadedPrefabs.ContainsKey(windowName)) return;
+            var resource = GetSystem<IResourceSystem>();
+            if (resource == null) return;
+
+            var handle = await resource.LoadAssetAsync<GameObject>(windowName, ct);
+            if (handle != null && handle.IsValid)
+                _preloadedPrefabs[windowName] = handle;
+        }
+
+        public async UniTask<bool[]> PreloadBatchAsync(string[] windowNames, CancellationToken ct = default)
+        {
+            if (windowNames == null || windowNames.Length == 0)
+                return Array.Empty<bool>();
+
+            var tasks = new UniTask<bool>[windowNames.Length];
+            for (int i = 0; i < windowNames.Length; i++)
+            {
+                var name = windowNames[i];
+                tasks[i] = SafePreloadAsync(name, ct);
+            }
+            return await UniTask.WhenAll(tasks);
+        }
+
+        private async UniTask<bool> SafePreloadAsync(string windowName, CancellationToken ct)
+        {
+            try
+            {
+                await PreloadAsync(windowName, ct);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[UISystem] Preload failed: {windowName} — {ex.Message}");
+                return false;
+            }
+        }
+
+        public void ReleasePreload(string windowName)
+        {
+            if (_preloadedPrefabs.Remove(windowName, out var handle))
+                handle.Dispose();
+        }
+
+        public bool IsPreloaded(string windowName)
+        {
+            return _preloadedPrefabs.TryGetValue(windowName, out var handle) && handle.IsValid;
+        }
+
+        private void ReleaseAllPreloads()
+        {
+            foreach (var handle in _preloadedPrefabs.Values)
+                handle.Dispose();
+            _preloadedPrefabs.Clear();
+        }
+
+        #endregion
+
+        #region Internal
+
+        private UIOpenOptions ResolveOptions(int windowId)
+        {
+            if (AdditionalProvider != null && AdditionalProvider.TryResolve(windowId, out var opt))
+                return opt;
+            if (MainProvider != null && MainProvider.TryResolve(windowId, out opt))
+                return opt;
+            Debug.LogError($"[UISystem] No config for windowId: {windowId}");
+            return null;
+        }
+
+        private async UniTask CloseInternal(int windowId, bool destroy,
+            UIAnimationType? animationOverride = null, CancellationToken ct = default)
+        {
+            if (!_openWindows.TryGetValue(windowId, out var info)) return;
+
+            info.SetInteractable(false);
+            info.View.InternalClose();
+
+            var animType = animationOverride ?? info.CloseAnimationType;
+            var strategy = GetAnimationStrategy(animType);
+            await strategy.PlayAsync(info.GameObject, false, ct);
+
+            info.View.InternalAfterClose();
+            ReleaseMask(windowId);
+
+            RemoveFromStack(windowId);
+            _openWindows.Remove(windowId);
+
+            var windowName = info.WindowIdentifier?.WindowName;
+            if (info.GameObject != null)
+            {
+                if (destroy)
+                    Object.Destroy(info.GameObject);
+                else
+                    info.GameObject.SetActive(false);
+            }
+
+            this.Publish(new UICloseEvent(windowId, windowName, info.Layer, destroy));
+        }
+
+        private void CloseImmediate(int windowId, bool destroy)
+        {
+            if (!_openWindows.TryGetValue(windowId, out var info)) return;
+
+            info.View.InternalClose();
+            info.View.InternalAfterClose();
+            ReleaseMask(windowId);
+
+            RemoveFromStack(windowId);
+            _openWindows.Remove(windowId);
+
+            var windowName = info.WindowIdentifier?.WindowName;
+            if (info.GameObject != null)
+            {
+                if (destroy)
+                    Object.Destroy(info.GameObject);
+                else
+                    info.GameObject.SetActive(false);
+            }
+
+            this.Publish(new UICloseEvent(windowId, windowName, info.Layer, destroy));
+        }
+
+        private void RemoveFromStack(int windowId)
+        {
+            for (int i = _stack.Count - 1; i >= 0; i--)
+            {
+                if (_stack[i].WindowId == windowId)
+                {
+                    _stack.RemoveAt(i);
+                    break;
+                }
+            }
+        }
+
+        private static IUIAnimationStrategy GetAnimationStrategy(UIAnimationType type)
+        {
+            return type switch
+            {
+                UIAnimationType.Animator => AnimatorAnimationStrategy.Instance,
+                UIAnimationType.Fade => FadeAnimationStrategy.Instance,
+                UIAnimationType.Scale => ScaleAnimationStrategy.Instance,
+                UIAnimationType.SlideFromTop => SlideAnimationStrategy.FromTop,
+                UIAnimationType.SlideFromBottom => SlideAnimationStrategy.FromBottom,
+                UIAnimationType.SlideFromLeft => SlideAnimationStrategy.FromLeft,
+                UIAnimationType.SlideFromRight => SlideAnimationStrategy.FromRight,
+                _ => NoneAnimationStrategy.Instance
+            };
+        }
+
+        private async UniTask<GameObject> LoadWindowPrefab(string windowName, CancellationToken ct)
+        {
+            var resource = GetSystem<IResourceSystem>();
+            if (resource == null)
+            {
+                Debug.LogError("[UISystem] ResourceSystem not registered");
+                return null;
+            }
+
+            ResourceHandle<GameObject> handle;
+            if (_preloadedPrefabs.TryGetValue(windowName, out var preloaded) && preloaded.IsValid)
+            {
+                handle = preloaded;
+            }
+            else
+            {
+                handle = await resource.LoadAssetAsync<GameObject>(windowName, ct);
+                if (handle != null && handle.IsValid)
+                    _preloadedPrefabs[windowName] = handle;
+            }
+
+            if (handle == null || !handle.IsValid)
+            {
+                Debug.LogError($"[UISystem] Failed to load UI prefab: {windowName}");
+                return null;
+            }
+
+            var go = Object.Instantiate(handle.Asset, _stagingRoot);
+            handle.BindTo(go);
+            return go;
+        }
+
+        #endregion
+
+        #region Window Mask
+
+        private void RequestMask(int windowId, Transform parent, Color color, bool clickToClose, Transform windowTransform)
+        {
+            var maskObj = new GameObject("UIMask");
+            maskObj.transform.SetParent(parent, false);
+
+            var rect = maskObj.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(5000, 5000);
+            rect.anchoredPosition = Vector2.zero;
+
+            var image = maskObj.AddComponent<Image>();
+            image.color = color;
+
+            if (clickToClose)
+            {
+                var button = maskObj.AddComponent<Button>();
+                button.transition = Selectable.Transition.None;
+                var id = windowId;
+                button.onClick.AddListener(() => Close(id));
+            }
+
+            maskObj.transform.SetSiblingIndex(windowTransform.GetSiblingIndex());
+            _windowMasks[windowId] = maskObj;
+        }
+
+        private void ReleaseMask(int windowId)
+        {
+            if (_windowMasks.Remove(windowId, out var maskObj) && maskObj != null)
+                Object.Destroy(maskObj);
+        }
+
+        private void ReleaseAllMasks()
+        {
+            foreach (var maskObj in _windowMasks.Values)
+            {
+                if (maskObj != null) Object.Destroy(maskObj);
+            }
+            _windowMasks.Clear();
+        }
+
+        #endregion
+    }
+}

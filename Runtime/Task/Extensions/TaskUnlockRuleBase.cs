@@ -14,8 +14,6 @@ namespace JulyGame.Task
         private Action _onChanged;
         private bool _active;
 
-        public IArchContext GetArchitecture() => GameArch.Context;
-
         public abstract bool CanUnlock();
 
         public void BindChangeNotifier(Action onChanged) => _onChanged = onChanged;

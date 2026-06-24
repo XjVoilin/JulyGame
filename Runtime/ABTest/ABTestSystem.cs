@@ -7,7 +7,7 @@ namespace JulyGame.ABTest
     public delegate bool ConditionChecker(EntryCondition condition, string userId, Dictionary<string, string> context);
     public delegate string CustomAllocator(Experiment experiment, string userId);
 
-    public abstract class ABTestSystemBase : GameSystemBase
+    public abstract class ABTestSystemBase : SystemBase
     {
         private ABTestRepository _repo;
         private readonly Dictionary<string, ConditionChecker> _conditionCheckers = new();

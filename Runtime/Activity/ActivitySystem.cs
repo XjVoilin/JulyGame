@@ -1,11 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using JulyArch;
-using JulyCore;
 
 namespace JulyGame.Activity
 {
-    public abstract class ActivitySystemBase : GameSystemBase, IUpdatableSystem
+    public abstract class ActivitySystemBase : SystemBase, IUpdatableSystem
     {
         private const float StateCheckInterval = 60f;
 
@@ -39,14 +38,14 @@ namespace JulyGame.Activity
         protected abstract ActivityRepository ResolveRepository();
 
         /// <summary>服务器 UTC 时间戳（秒）。可覆写以接入对时或便于测试。</summary>
-        protected virtual long OnGetServerTimeUtc() => GF.Time.ServerTimeUtcTimestamp;
+        protected virtual long OnGetServerTimeUtc() => GetSystem<TimeSystem>().ServerTimeSeconds;
 
         public void OnUpdate(float deltaTime)
         {
             if (!_isReady || _repo.Definitions.Count == 0)
                 return;
 
-            _lastStateCheckTime += GF.Time.UnscaledDeltaTime;
+            _lastStateCheckTime += GetSystem<TimeSystem>().UnscaledDeltaTime;
             if (_lastStateCheckTime >= StateCheckInterval)
             {
                 _lastStateCheckTime = 0f;

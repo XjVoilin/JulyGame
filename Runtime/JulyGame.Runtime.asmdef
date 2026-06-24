@@ -3,9 +3,10 @@
     "rootNamespace": "JulyGame",
     "references": [
         "JulyArch.Runtime",
-        "JulyCore.Runtime",
         "JulyEvents.Runtime",
         "UniTask",
+        "UniTask.DOTween",
+        "DOTweenAot",
         "Unity.TextMeshPro"
     ],
     "includePlatforms": [],

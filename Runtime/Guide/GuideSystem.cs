@@ -3,7 +3,7 @@ using JulyArch;
 
 namespace JulyGame.Guide
 {
-    public abstract class GuideSystemBase : GameSystemBase
+    public abstract class GuideSystemBase : SystemBase
     {
         private GuideRepository _repo;
 

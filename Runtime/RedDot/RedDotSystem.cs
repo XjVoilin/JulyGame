@@ -4,7 +4,7 @@ using JulyArch;
 
 namespace JulyGame.RedDot
 {
-    public abstract class RedDotSystemBase : GameSystemBase
+    public abstract class RedDotSystemBase : SystemBase
     {
         private RedDotStore _store;
         private RedDotHandler[] _handlers;
@@ -160,7 +160,7 @@ namespace JulyGame.RedDot
 
         public void OnKeyChanged(string key, Action<RedDotChangedEvent> handler, object target)
         {
-            GetArchitecture().Event.Subscribe<RedDotChangedEvent>(evt =>
+            ArchContext.Current.Event.Subscribe<RedDotChangedEvent>(evt =>
             {
                 if (evt.Key == key)
                     handler(evt);
@@ -169,7 +169,7 @@ namespace JulyGame.RedDot
 
         public void OnEnabledChanged(Action<RedDotEnabledChangedEvent> handler, object target)
         {
-            GetArchitecture().Event.Subscribe(handler, target);
+            ArchContext.Current.Event.Subscribe(handler, target);
         }
 
         #endregion

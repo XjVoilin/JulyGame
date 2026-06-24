@@ -21,7 +21,7 @@ namespace JulyGame.Task
     /// 重置为时间驱动、批量检查：接入方在自身时间源（App 心跳、前台恢复等）中调用
     /// <see cref="SweepResets"/>，基座据 <see cref="ITaskResetPolicy"/> 的边界统一判定与重置。
     /// </remarks>
-    public abstract class TaskSystemBase : GameSystemBase
+    public abstract class TaskSystemBase : SystemBase
     {
         private TaskRepository _repo;
 
