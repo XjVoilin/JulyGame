@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -85,8 +86,8 @@ namespace JulyGame
 
             var scaler = layerGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = _designResolution;
-            scaler.matchWidthOrHeight = _screenMatchMode;
+            scaler.referenceResolution = (Vector2)_uiConfig.DesignResolution;
+            scaler.matchWidthOrHeight = _uiConfig.ScreenMatchMode;
 
             layerGo.AddComponent<GraphicRaycaster>();
 
@@ -122,7 +123,7 @@ namespace JulyGame
             _uiCamera.cullingMask = 1 << LayerMask.NameToLayer("UI");
             _uiCamera.orthographic = true;
             _uiCamera.orthographicSize = 5f;
-            _uiCamera.depth = 10;
+            _uiCamera.depth = _uiConfig.UICameraDepth;
             _uiCamera.nearClipPlane = 0.1f;
             _uiCamera.farClipPlane = 1000f;
 
@@ -188,41 +189,11 @@ namespace JulyGame
 
         #region Configuration
 
-        private Vector2 _designResolution = new(1080, 1920);
-        private float _screenMatchMode = 0.5f;
+        private UIConfig _uiConfig = UIConfig.Default;
+        private TipConfig _tipConfig = TipConfig.Default;
 
-        public Vector2 DesignResolution
-        {
-            get => _designResolution;
-            set
-            {
-                _designResolution = value;
-                ApplyResolutionToAllLayers();
-            }
-        }
-
-        public float ScreenMatchMode
-        {
-            get => _screenMatchMode;
-            set
-            {
-                _screenMatchMode = value;
-                ApplyResolutionToAllLayers();
-            }
-        }
-
-        private void ApplyResolutionToAllLayers()
-        {
-            foreach (var kvp in _layerCanvases)
-            {
-                var scaler = kvp.Value.GetComponent<CanvasScaler>();
-                if (scaler != null)
-                {
-                    scaler.referenceResolution = _designResolution;
-                    scaler.matchWidthOrHeight = _screenMatchMode;
-                }
-            }
-        }
+        public void Configure(UIConfig config) => _uiConfig = config;
+        public void ConfigureTip(TipConfig config) => _tipConfig = config;
 
         #endregion
 
@@ -288,7 +259,7 @@ namespace JulyGame
             var windowId = options.WindowIdentifier.ID;
             if (_openWindows.ContainsKey(windowId))
             {
-                Debug.LogWarning($"[UISystem] Window {windowId} already open, ignoring");
+                JLogger.LogWarning($"[UISystem] Window {windowId} already open, ignoring");
                 return _openWindows[windowId].View;
             }
 
@@ -298,7 +269,7 @@ namespace JulyGame
             var view = go.GetComponent<UIView>();
             if (view == null)
             {
-                Debug.LogError($"[UISystem] Prefab '{options.WindowIdentifier.WindowName}' missing UIView component");
+                JLogger.LogError($"[UISystem] Prefab '{options.WindowIdentifier.WindowName}' missing UIView component");
                 Object.Destroy(go);
                 return null;
             }
@@ -322,7 +293,7 @@ namespace JulyGame
             go.transform.SetParent(parentTransform, false);
 
             if (options.ShowMask)
-                RequestMask(windowId, parentTransform, options.MaskColor, options.ClickMaskToClose, go.transform);
+                RequestMask(windowId, parentTransform, options.ClickMaskToClose, go.transform);
 
             var uiInfo = new UIInfo
             {
@@ -481,7 +452,7 @@ namespace JulyGame
         {
             if (_tipManager == null)
             {
-                Debug.LogWarning($"[UISystem] TipManager not initialized: {message}");
+                JLogger.LogWarning($"[UISystem] TipManager not initialized: {message}");
                 return;
             }
             _tipManager.Show(message, duration);
@@ -490,6 +461,7 @@ namespace JulyGame
         private void InitTipManager()
         {
             _tipManager = new TipManager(() => GetSystem<IResourceSystem>());
+            _tipManager.Configure(_tipConfig);
             _tipManager.Initialize();
         }
 
@@ -531,7 +503,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[UISystem] Preload failed: {windowName} — {ex.Message}");
+                JLogger.LogWarning($"[UISystem] Preload failed: {windowName} — {ex.Message}");
                 return false;
             }
         }
@@ -564,7 +536,7 @@ namespace JulyGame
                 return opt;
             if (MainProvider != null && MainProvider.TryResolve(windowId, out opt))
                 return opt;
-            Debug.LogError($"[UISystem] No config for windowId: {windowId}");
+            JLogger.LogError($"[UISystem] No config for windowId: {windowId}");
             return null;
         }
 
@@ -653,7 +625,7 @@ namespace JulyGame
             var resource = GetSystem<IResourceSystem>();
             if (resource == null)
             {
-                Debug.LogError("[UISystem] ResourceSystem not registered");
+                JLogger.LogError("[UISystem] ResourceSystem not registered");
                 return null;
             }
 
@@ -671,7 +643,7 @@ namespace JulyGame
 
             if (handle == null || !handle.IsValid)
             {
-                Debug.LogError($"[UISystem] Failed to load UI prefab: {windowName}");
+                JLogger.LogError($"[UISystem] Failed to load UI prefab: {windowName}");
                 return null;
             }
 
@@ -684,7 +656,7 @@ namespace JulyGame
 
         #region Window Mask
 
-        private void RequestMask(int windowId, Transform parent, Color color, bool clickToClose, Transform windowTransform)
+        private void RequestMask(int windowId, Transform parent, bool clickToClose, Transform windowTransform)
         {
             var maskObj = new GameObject("UIMask");
             maskObj.transform.SetParent(parent, false);
@@ -696,7 +668,7 @@ namespace JulyGame
             rect.anchoredPosition = Vector2.zero;
 
             var image = maskObj.AddComponent<Image>();
-            image.color = color;
+            image.color = new Color(0f, 0f, 0f, _uiConfig.MaskAlpha);
 
             if (clickToClose)
             {

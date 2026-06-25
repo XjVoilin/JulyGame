@@ -243,7 +243,12 @@ namespace JulyGame
             PlaySfx3DAsync(fileName, options).Forget();
         }
 
-        public string DefaultClickSfx { get; set; }
+        public string DefaultClickSfx { get; set; } = AudioConfig.Default.DefaultClickSfx;
+
+        public void Configure(AudioConfig config)
+        {
+            DefaultClickSfx = config.DefaultClickSfx;
+        }
 
         public void PlayClickSfx(string overrideSfx = null)
         {

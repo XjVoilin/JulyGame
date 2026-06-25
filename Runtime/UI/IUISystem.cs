@@ -1,5 +1,6 @@
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -15,13 +16,6 @@ namespace JulyGame
         Canvas GetLayerCanvas(UILayer layer);
         void ShowMask();
         void HideMask();
-
-        #endregion
-
-        #region Configuration
-
-        Vector2 DesignResolution { get; set; }
-        float ScreenMatchMode { get; set; }
 
         #endregion
 

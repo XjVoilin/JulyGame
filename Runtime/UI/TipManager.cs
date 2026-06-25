@@ -12,15 +12,7 @@ namespace JulyGame
     /// </summary>
     internal sealed class TipManager
     {
-        private const string TipPrefabPath = "UITipItem";
-        private const int PoolMaxSize = 10;
-        private const float DefaultDuration = 2f;
-        private const float FadeOutDuration = 0.3f;
-        private const float Spacing = 10f;
-        private const float MoveUpDuration = 0.2f;
-        private const float EnterOffset = 50f;
-        private const float EnterDuration = 0.2f;
-
+        private TipConfig _config;
         private readonly Func<IResourceSystem> _resourceResolver;
 
         private Transform _container;
@@ -36,7 +28,10 @@ namespace JulyGame
         internal TipManager(Func<IResourceSystem> resourceResolver)
         {
             _resourceResolver = resourceResolver ?? throw new ArgumentNullException(nameof(resourceResolver));
+            _config = TipConfig.Default;
         }
+
+        internal void Configure(TipConfig config) => _config = config;
 
         internal void Initialize()
         {
@@ -65,11 +60,11 @@ namespace JulyGame
             var tip = GetFromPool();
             if (tip == null) return;
 
-            MoveUpExisting(tip.GetHeight() + Spacing);
+            MoveUpExisting(tip.GetHeight() + _config.Spacing);
 
-            var showDuration = duration > 0 ? duration : DefaultDuration;
-            tip.Show(message, showDuration, FadeOutDuration, OnTipComplete,
-                EnterOffset, EnterDuration);
+            var showDuration = duration > 0 ? duration : _config.DefaultDuration;
+            tip.Show(message, showDuration, _config.FadeOutDuration, OnTipComplete,
+                _config.EnterOffset, _config.EnterDuration);
 
             _activeTips.Add(tip);
         }
@@ -119,7 +114,7 @@ namespace JulyGame
 
         private async void LoadPrefabAsync()
         {
-            if (string.IsNullOrEmpty(TipPrefabPath)) return;
+            if (string.IsNullOrEmpty(_config.TipPrefabPath)) return;
 
             _loading = true;
 
@@ -133,10 +128,10 @@ namespace JulyGame
                     return;
                 }
 
-                var handle = await resource.LoadAssetAsync<GameObject>(TipPrefabPath);
+                var handle = await resource.LoadAssetAsync<GameObject>(_config.TipPrefabPath);
                 if (handle == null || !handle.IsValid)
                 {
-                    Debug.LogWarning($"[TipManager] Failed to load tip prefab: {TipPrefabPath}");
+                    Debug.LogWarning($"[TipManager] Failed to load tip prefab: {_config.TipPrefabPath}");
                     _loading = false;
                     return;
                 }
@@ -197,7 +192,7 @@ namespace JulyGame
             {
                 var tip = _activeTips[i];
                 if (tip != null && tip.gameObject.activeSelf)
-                    tip.MoveUp(offset, MoveUpDuration);
+                    tip.MoveUp(offset, _config.MoveUpDuration);
             }
         }
 
@@ -209,7 +204,7 @@ namespace JulyGame
             tip.gameObject.SetActive(false);
             tip.Reset();
 
-            if (_pool.Count < PoolMaxSize)
+            if (_pool.Count < _config.PoolMaxSize)
                 _pool.Enqueue(tip);
             else
                 Object.Destroy(tip.gameObject);

@@ -61,19 +61,11 @@ namespace JulyGame
                     : SaveResult.CreateFailure(SaveFailureReason.Unknown));
         }
 
-        protected virtual byte[] MigrateSaveData(byte[] rawData, byte fromVersion, string key)
-        {
-            Debug.LogWarning(
-                $"[SaveSystem] 未实现从版本 {fromVersion} 到 {CurrentSaveVersion} 的迁移: {key}");
-            return null;
-        }
-
         #endregion
 
         #region Save Format Constants
 
         protected const byte CurrentSaveVersion = 1;
-        protected const byte MinimumSupportedVersion = 1;
 
         #endregion
 
@@ -116,12 +108,12 @@ namespace JulyGame
 
         protected ISerializeSystem GetSerializeSystem()
         {
-            return _serializeSystem ??= this.GetSystem<ISerializeSystem>();
+            return _serializeSystem ??= this.TryGetSystem<ISerializeSystem>();
         }
 
         protected IEncryptionSystem GetEncryptionSystem()
         {
-            return _encryptionSystem ??= this.GetSystem<IEncryptionSystem>();
+            return _encryptionSystem ??= this.TryGetSystem<IEncryptionSystem>();
         }
 
         #endregion
@@ -600,32 +592,11 @@ namespace JulyGame
             var offset = 0;
             var version = rawData[offset++];
 
-            if (version < MinimumSupportedVersion)
+            if (version != CurrentSaveVersion)
             {
                 Debug.LogError(
-                    $"[SaveSystem] 存档版本过低: {version} (最低: {MinimumSupportedVersion}), key: {key}");
+                    $"[SaveSystem] 存档版本 {version} 不受支持（当前: {CurrentSaveVersion}）, key: {key}");
                 return null;
-            }
-
-            if (version > CurrentSaveVersion)
-            {
-                Debug.LogError(
-                    $"[SaveSystem] 存档版本过高: {version} (当前: {CurrentSaveVersion}), key: {key}");
-                return null;
-            }
-
-            if (MinimumSupportedVersion != version)
-            {
-                Debug.LogWarning($"[SaveSystem] 检测到旧版本存档: {version}，尝试迁移, key: {key}");
-                var migratedData = MigrateSaveData(rawData, version, key);
-                if (migratedData == null)
-                {
-                    Debug.LogError($"[SaveSystem] 存档迁移失败: {key}");
-                    return null;
-                }
-
-                rawData = migratedData;
-                offset = 1;
             }
 
             var dataLength = BitConverter.ToInt32(rawData, offset);

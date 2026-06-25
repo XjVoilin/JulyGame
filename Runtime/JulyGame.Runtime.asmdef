@@ -3,6 +3,7 @@
     "rootNamespace": "JulyGame",
     "references": [
         "JulyArch.Runtime",
+        "JulyCommon.Runtime",
         "JulyEvents.Runtime",
         "UniTask",
         "UniTask.DOTween",

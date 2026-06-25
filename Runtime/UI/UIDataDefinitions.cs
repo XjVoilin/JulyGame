@@ -77,7 +77,6 @@ namespace JulyGame
         public UIAnimationType OpenAnimationType { get; set; } = UIAnimationType.None;
         public UIAnimationType CloseAnimationType { get; set; } = UIAnimationType.None;
         public bool ShowMask { get; set; } = false;
-        public Color MaskColor { get; set; } = new Color(0, 0, 0, 0.8f);
         public bool ClickMaskToClose { get; set; } = false;
         public bool IgnoreSafeArea { get; set; } = false;
     }
