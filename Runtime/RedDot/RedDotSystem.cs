@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
 using JulyArch;
 
 namespace JulyGame.RedDot
@@ -10,18 +11,15 @@ namespace JulyGame.RedDot
         private RedDotHandler[] _handlers;
         private readonly Dictionary<string, RedDotValueCalculator> _calculators = new();
 
-        protected sealed override void OnInitialize()
+        protected sealed override UniTask OnInitializeAsync()
         {
             _store = GetStore<RedDotStore>();
-        }
-
-        protected sealed override void OnStart()
-        {
             OnRegisterNodes();
             _handlers = OnCreateHandlers();
             if (_handlers != null)
                 foreach (var h in _handlers)
                     h.Attach(this);
+            return UniTask.CompletedTask;
         }
 
         protected sealed override void OnShutdown()

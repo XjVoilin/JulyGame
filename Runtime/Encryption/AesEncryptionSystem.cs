@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using Cysharp.Threading.Tasks;
 using JulyArch;
 using UnityEngine;
 
@@ -19,7 +20,7 @@ namespace JulyGame
             _configKey = encryptionKey;
         }
 
-        protected override void OnInitialize()
+        protected override UniTask OnInitializeAsync()
         {
             var rawKey = _configKey ?? "JulyGF_Default_Encryption_Key_32Bytes!!";
             if (string.IsNullOrEmpty(_configKey))
@@ -31,6 +32,7 @@ namespace JulyGame
 
             _iv = new byte[16];
             Array.Copy(_key, 0, _iv, 0, 16);
+            return UniTask.CompletedTask;
         }
 
         public byte[] Encrypt(byte[] data)

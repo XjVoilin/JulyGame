@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
 using JulyArch;
 
 namespace JulyGame.ABTest
@@ -15,18 +16,15 @@ namespace JulyGame.ABTest
         private readonly object _lock = new();
         private readonly Random _random = new();
 
-        protected sealed override void OnInitialize()
+        protected sealed override UniTask OnInitializeAsync()
         {
             _repo = ResolveRepository();
             RegisterDefaultConditionCheckers();
+            OnConfigure();
+            return UniTask.CompletedTask;
         }
 
         protected abstract ABTestRepository ResolveRepository();
-
-        protected sealed override void OnStart()
-        {
-            OnConfigure();
-        }
 
         protected sealed override void OnShutdown()
         {

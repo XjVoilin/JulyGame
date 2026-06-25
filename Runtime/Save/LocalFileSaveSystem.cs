@@ -21,10 +21,11 @@ namespace JulyGame
 
         #region Lifecycle
 
-        protected override void OnInitialize()
+        protected override UniTask OnInitializeAsync()
         {
-            base.OnInitialize();
+            var initTask = base.OnInitializeAsync();
             EnsurePathsInitialized();
+            return initTask;
         }
 
         private void EnsurePathsInitialized()

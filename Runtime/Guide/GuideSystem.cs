@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
 using JulyArch;
 
 namespace JulyGame.Guide
@@ -14,17 +15,14 @@ namespace JulyGame.Guide
         private IGuideFlowHandler _activeHandler;
         private bool _isFlowActive;
 
-        protected sealed override void OnInitialize()
+        protected sealed override UniTask OnInitializeAsync()
         {
             _repo = ResolveRepository();
+            OnConfigure();
+            return UniTask.CompletedTask;
         }
 
         protected abstract GuideRepository ResolveRepository();
-
-        protected sealed override void OnStart()
-        {
-            OnConfigure();
-        }
 
         protected sealed override void OnShutdown()
         {

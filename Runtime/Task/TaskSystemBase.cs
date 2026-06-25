@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
 using JulyArch;
 using UnityEngine;
 
@@ -50,14 +51,11 @@ namespace JulyGame.Task
             }
         }
 
-        protected sealed override void OnInitialize()
+        protected sealed override UniTask OnInitializeAsync()
         {
             _repo = ResolveRepository();
-        }
-
-        protected sealed override void OnStart()
-        {
             OnConfigure();
+            return UniTask.CompletedTask;
         }
 
         protected sealed override void OnShutdown()

@@ -214,10 +214,11 @@ namespace JulyGame
 
         #region Lifecycle
 
-        protected override void OnInitialize()
+        protected override UniTask OnInitializeAsync()
         {
             CreateUIRoot();
             InitTipManager();
+            return UniTask.CompletedTask;
         }
 
         protected override void OnShutdown()

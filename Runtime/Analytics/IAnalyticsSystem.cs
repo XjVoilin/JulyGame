@@ -10,7 +10,6 @@ namespace JulyGame
     {
         bool IsEnabled { get; }
         void SetEnabled(bool enabled);
-        void DeferredInit();
         void Track(string eventName, Dictionary<string, object> parameters = null);
         void Track<T>(T evt) where T : struct, IBIEvent;
         void SetUserId(string userId);

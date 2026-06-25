@@ -56,10 +56,11 @@ namespace JulyGame
 
         #region Lifecycle
 
-        protected override void OnInitialize()
+        protected override UniTask OnInitializeAsync()
         {
             _resourceSystem = GetSystem<IResourceSystem>();
             PrewarmPool();
+            return UniTask.CompletedTask;
         }
 
         protected override void OnShutdown()

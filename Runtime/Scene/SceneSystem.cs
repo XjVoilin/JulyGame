@@ -21,13 +21,14 @@ namespace JulyGame
 
         public string CurrentSceneName => _currentSceneName;
 
-        protected override void OnInitialize()
+        protected override UniTask OnInitializeAsync()
         {
             _resourceSystem = GetSystem<IResourceSystem>();
 
             var activeScene = SceneManager.GetActiveScene();
             if (activeScene.IsValid())
                 _currentSceneName = activeScene.name;
+            return UniTask.CompletedTask;
         }
 
         protected override void OnShutdown()

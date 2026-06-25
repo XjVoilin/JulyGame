@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Cysharp.Threading.Tasks;
 using JulyArch;
 
 namespace JulyGame.Activity
@@ -13,16 +14,13 @@ namespace JulyGame.Activity
         private float _lastStateCheckTime;
         private bool _isReady;
 
-        protected sealed override void OnInitialize()
+        protected sealed override UniTask OnInitializeAsync()
         {
             _repo = ResolveRepository();
             _isReady = false;
             _lastStateCheckTime = 0f;
-        }
-
-        protected sealed override void OnStart()
-        {
             OnConfigure();
+            return UniTask.CompletedTask;
         }
 
         protected sealed override void OnShutdown()

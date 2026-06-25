@@ -71,11 +71,12 @@ namespace JulyGame
 
         #region Lifecycle
 
-        protected override void OnInitialize()
+        protected override UniTask OnInitializeAsync()
         {
             _saveStrategy = new ImportanceBasedSaveStrategy();
             _lastAutoSaveTime = 0f;
             _isSaving = false;
+            return UniTask.CompletedTask;
         }
 
         protected override void OnShutdown()
