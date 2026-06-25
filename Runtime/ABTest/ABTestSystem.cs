@@ -20,8 +20,12 @@ namespace JulyGame.ABTest
         {
             _repo = ResolveRepository();
             RegisterDefaultConditionCheckers();
-            OnConfigure();
             return UniTask.CompletedTask;
+        }
+
+        protected sealed override void OnPostInitialize()
+        {
+            OnConfigure();
         }
 
         protected abstract ABTestRepository ResolveRepository();

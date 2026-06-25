@@ -14,12 +14,16 @@ namespace JulyGame.RedDot
         protected sealed override UniTask OnInitializeAsync()
         {
             _store = GetStore<RedDotStore>();
+            return UniTask.CompletedTask;
+        }
+
+        protected sealed override void OnPostInitialize()
+        {
             OnRegisterNodes();
             _handlers = OnCreateHandlers();
             if (_handlers != null)
                 foreach (var h in _handlers)
                     h.Attach(this);
-            return UniTask.CompletedTask;
         }
 
         protected sealed override void OnShutdown()

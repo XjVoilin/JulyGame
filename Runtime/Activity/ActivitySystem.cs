@@ -19,8 +19,12 @@ namespace JulyGame.Activity
             _repo = ResolveRepository();
             _isReady = false;
             _lastStateCheckTime = 0f;
-            OnConfigure();
             return UniTask.CompletedTask;
+        }
+
+        protected sealed override void OnPostInitialize()
+        {
+            OnConfigure();
         }
 
         protected sealed override void OnShutdown()
