@@ -6,9 +6,11 @@ using UnityEngine;
 namespace JulyGame
 {
     /// <summary>
-    /// UI 面板基类 — 继承 GameView，由 UISystem 驱动生命周期。
+    /// UI 面板基类 — 继承 ArchBehaviour，由 UISystem 驱动生命周期。
+    /// <para>与 <see cref="GameView"/> 平级，不经过 GameView 继承链。</para>
+    /// <para>不占用 Unity 生命周期方法；事件清理在 InternalClose 中自动完成。</para>
     /// </summary>
-    public abstract class UIView : GameView
+    public abstract class UIView : ArchBehaviour
     {
         private object _data;
 
@@ -34,6 +36,7 @@ namespace JulyGame
         {
             if (!IsOpened) return;
             IsOpened = false;
+            this.UnsubscribeAll();
             OnClose();
         }
 
@@ -41,13 +44,6 @@ namespace JulyGame
         {
             OnAfterClose();
         }
-
-        #endregion
-
-        #region GameView 钩子封堵 — UIView 子类应使用 OnBeforeOpen/OnOpen/OnClose/OnAfterClose
-
-        protected sealed override void OnViewEnable() { }
-        protected sealed override void OnViewDisable() { }
 
         #endregion
 
@@ -78,14 +74,14 @@ namespace JulyGame
         protected void CloseWindow(bool destroy = true, UIAnimationType? animationType = null)
         {
             if (!IsOpened) return;
-            GetSystem<UISystem>().Close(this, destroy, animationType);
+            this.GetSystem<UISystem>().Close(this, destroy, animationType);
         }
 
         protected UniTask CloseWindowAsync(bool destroy = true, UIAnimationType? animationType = null,
             CancellationToken ct = default)
         {
             if (!IsOpened) return UniTask.CompletedTask;
-            return GetSystem<UISystem>().CloseAsync(this, destroy, animationType, ct);
+            return this.GetSystem<UISystem>().CloseAsync(this, destroy, animationType, ct);
         }
 
         #endregion
