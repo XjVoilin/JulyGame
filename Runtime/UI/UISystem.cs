@@ -83,6 +83,8 @@ namespace JulyGame
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = _uiCamera;
             canvas.sortingOrder = (int)layer;
+            canvas.planeDistance = _uiConfig.PlaneDistance;
+            canvas.vertexColorAlwaysGammaSpace = true;
 
             var scaler = layerGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -113,19 +115,35 @@ namespace JulyGame
 
         private void CreateUIRoot()
         {
+            var existingRoot = GameObject.Find("[UIRoot]");
+            if (existingRoot != null)
+            {
+                _uiRootGo = existingRoot;
+                _uiCamera = _uiRootGo.GetComponentInChildren<Camera>();
+                var existingStaging = GameObject.Find("[UI_Staging]");
+                _stagingRoot = existingStaging != null ? existingStaging.transform : null;
+                if (_uiCamera != null && _stagingRoot != null) return;
+            }
+
             _uiRootGo = new GameObject("[UIRoot]");
+            _uiRootGo.layer = LayerMask.NameToLayer("UI");
             Object.DontDestroyOnLoad(_uiRootGo);
 
             var cameraGo = new GameObject("UICamera");
+            cameraGo.layer = LayerMask.NameToLayer("UI");
             cameraGo.transform.SetParent(_uiRootGo.transform, false);
             _uiCamera = cameraGo.AddComponent<Camera>();
             _uiCamera.clearFlags = CameraClearFlags.Depth;
             _uiCamera.cullingMask = 1 << LayerMask.NameToLayer("UI");
             _uiCamera.orthographic = true;
-            _uiCamera.orthographicSize = 5f;
+            _uiCamera.orthographicSize = _uiConfig.CameraOrthographicSize;
             _uiCamera.depth = _uiConfig.UICameraDepth;
-            _uiCamera.nearClipPlane = 0.1f;
+            _uiCamera.nearClipPlane = _uiConfig.CameraNearClip;
             _uiCamera.farClipPlane = 1000f;
+
+            var audioListener = cameraGo.GetComponent<AudioListener>();
+            if (audioListener != null)
+                Object.Destroy(audioListener);
 
             var stagingGo = new GameObject("[UI_Staging]");
             stagingGo.SetActive(false);
@@ -282,16 +300,11 @@ namespace JulyGame
             if (canvasGroup == null)
                 canvasGroup = go.AddComponent<CanvasGroup>();
 
-            Transform parentTransform;
-            if (options.IgnoreSafeArea)
-            {
-                parentTransform = GetLayer(options.Layer);
-            }
-            else
-            {
-                parentTransform = GetSafeAreaRoot(options.Layer);
-            }
+            var parentTransform = GetSafeAreaRoot(options.Layer);
             go.transform.SetParent(parentTransform, false);
+
+            if (options.IgnoreSafeArea)
+                ExpandToFullScreen(go.GetComponent<RectTransform>());
 
             if (options.ShowMask)
                 RequestMask(windowId, parentTransform, options.ClickMaskToClose, go.transform);
@@ -365,24 +378,24 @@ namespace JulyGame
 
         #region Close
 
-        public void Close(int windowId, bool destroy = false, UIAnimationType? animationType = null)
+        public void Close(int windowId, bool destroy = true, UIAnimationType? animationType = null)
         {
             CloseInternal(windowId, destroy, animationType).Forget();
         }
 
-        public void Close(UIView view, bool destroy = false, UIAnimationType? animationType = null)
+        public void Close(UIView view, bool destroy = true, UIAnimationType? animationType = null)
         {
             if (view == null) return;
             Close(view.WindowId, destroy, animationType);
         }
 
-        public UniTask CloseAsync(int windowId, bool destroy = false, UIAnimationType? animationType = null,
+        public UniTask CloseAsync(int windowId, bool destroy = true, UIAnimationType? animationType = null,
             CancellationToken ct = default)
         {
             return CloseInternal(windowId, destroy, animationType, ct);
         }
 
-        public UniTask CloseAsync(UIView view, bool destroy = false, UIAnimationType? animationType = null,
+        public UniTask CloseAsync(UIView view, bool destroy = true, UIAnimationType? animationType = null,
             CancellationToken ct = default)
         {
             if (view == null) return UniTask.CompletedTask;
@@ -604,6 +617,26 @@ namespace JulyGame
                     break;
                 }
             }
+        }
+
+        private static void ExpandToFullScreen(RectTransform windowRect)
+        {
+            if (windowRect == null) return;
+
+            var safeAreaRect = windowRect.parent as RectTransform;
+            if (safeAreaRect == null) return;
+
+            var sMin = safeAreaRect.anchorMin;
+            var sMax = safeAreaRect.anchorMax;
+
+            float safeW = sMax.x - sMin.x;
+            float safeH = sMax.y - sMin.y;
+            if (safeW <= 0 || safeH <= 0) return;
+
+            windowRect.anchorMin = new Vector2(-sMin.x / safeW, -sMin.y / safeH);
+            windowRect.anchorMax = new Vector2((1f - sMin.x) / safeW, (1f - sMin.y) / safeH);
+            windowRect.offsetMin = Vector2.zero;
+            windowRect.offsetMax = Vector2.zero;
         }
 
         private static IUIAnimationStrategy GetAnimationStrategy(UIAnimationType type)

@@ -32,11 +32,11 @@ namespace JulyGame
 
         #region Close
 
-        void Close(int windowId, bool destroy = false, UIAnimationType? animationType = null);
-        void Close(UIView view, bool destroy = false, UIAnimationType? animationType = null);
-        UniTask CloseAsync(int windowId, bool destroy = false, UIAnimationType? animationType = null,
+        void Close(int windowId, bool destroy = true, UIAnimationType? animationType = null);
+        void Close(UIView view, bool destroy = true, UIAnimationType? animationType = null);
+        UniTask CloseAsync(int windowId, bool destroy = true, UIAnimationType? animationType = null,
             CancellationToken ct = default);
-        UniTask CloseAsync(UIView view, bool destroy = false, UIAnimationType? animationType = null,
+        UniTask CloseAsync(UIView view, bool destroy = true, UIAnimationType? animationType = null,
             CancellationToken ct = default);
         void CloseAll(bool destroy = false);
         void CloseLayer(UILayer layer, bool destroy = false, int excludeWindowId = -1);

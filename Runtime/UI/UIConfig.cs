@@ -16,6 +16,12 @@ namespace JulyGame
         [Tooltip("UI 相机渲染深度（需高于主相机，默认 10）")]
         public float UICameraDepth;
 
+        [Tooltip("UI 相机正交大小")]
+        public float CameraOrthographicSize;
+
+        [Tooltip("UI 相机近裁剪面")]
+        public float CameraNearClip;
+
         [Tooltip("Canvas 与 UI 相机的距离")]
         public float PlaneDistance;
 
@@ -28,6 +34,8 @@ namespace JulyGame
             DesignResolution = new Vector2Int(1080, 1920),
             ScreenMatchMode = 0f,
             UICameraDepth = 10f,
+            CameraOrthographicSize = 9.6f,
+            CameraNearClip = 0.3f,
             PlaneDistance = 100f,
             MaskAlpha = 0.97f,
         };
