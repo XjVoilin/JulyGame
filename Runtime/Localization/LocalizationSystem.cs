@@ -9,11 +9,20 @@ namespace JulyGame
 {
     public class LocalizationSystem : SystemBase, ILocalizationSystem
     {
-        private string _currentLanguage;
-        private string _defaultLanguage;
+        private const string FallbackLanguage = "CN";
+
+        private string _currentLanguage = FallbackLanguage;
+        private string _defaultLanguage = FallbackLanguage;
         private readonly List<string> _supportedLanguages = new();
         private readonly Dictionary<string, Dictionary<string, string>> _mainLanguageData = new();
         private readonly Dictionary<string, Dictionary<string, string>> _additionalLanguageData = new();
+
+        protected override UniTask OnInitializeAsync()
+        {
+            if (MainProvider == null)
+                Debug.LogWarning("[LocalizationSystem] MainProvider 未设置。请在 PreInitializeAsync 中调用 SetMainProvider 配置本地化数据源。");
+            return UniTask.CompletedTask;
+        }
 
         #region ISupportMultipleSource
 
