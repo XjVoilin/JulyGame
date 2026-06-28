@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -88,7 +89,7 @@ namespace JulyGame
                 try { entity.ApplyLocal(); }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[HttpSystem] ApplyLocal exception: {ex.Message}");
+                    JLogger.LogError($"[HttpSystem] ApplyLocal exception: {ex.Message}");
                     entity.SetCompleted();
                     return;
                 }
@@ -264,7 +265,7 @@ namespace JulyGame
             }
 
             var tag = entity.LogTag ?? entity.Path;
-            Debug.Log($"[HTTP] >>> {method} {url} {tag}" +
+            JLogger.Log($"[HTTP] >>> {method} {url} {tag}" +
                       (bodyJson != null ? $"\n{bodyJson}" : ""));
 
             var response = await SendRawAsync(url, method, bodyBytes, _defaultHeaders, _options.TimeoutSeconds, ct);
@@ -273,12 +274,12 @@ namespace JulyGame
             {
                 entity.Code = HttpEntityBase.CodeNetworkError;
                 entity.Msg = response.Error ?? "Network error";
-                Debug.LogWarning($"[HTTP] <<< NETWORK ERROR {tag}: {entity.Msg}");
+                JLogger.LogWarning($"[HTTP] <<< NETWORK ERROR {tag}: {entity.Msg}");
                 return;
             }
 
             var text = response.GetText();
-            Debug.Log($"[HTTP] <<< {response.StatusCode} {tag}" +
+            JLogger.Log($"[HTTP] <<< {response.StatusCode} {tag}" +
                       (!string.IsNullOrEmpty(text) ? $"\n{text}" : ""));
 
             if (!string.IsNullOrEmpty(text))
@@ -294,7 +295,7 @@ namespace JulyGame
                     {
                         entity.Code = HttpEntityBase.CodeDataProcessingError;
                         entity.Msg = $"Data processing failed: {ex.Message}";
-                        Debug.LogError($"[HTTP] <<< DATA ERROR {tag}: {entity.Msg}");
+                        JLogger.LogError($"[HTTP] <<< DATA ERROR {tag}: {entity.Msg}");
                         return;
                     }
                 }
@@ -302,7 +303,7 @@ namespace JulyGame
 
             entity.Code = HttpEntityBase.CodeHttpError;
             entity.Msg = response.Error ?? $"HTTP {response.StatusCode}";
-            Debug.LogWarning($"[HTTP] <<< HTTP ERROR {tag}: {entity.Msg}");
+            JLogger.LogWarning($"[HTTP] <<< HTTP ERROR {tag}: {entity.Msg}");
         }
 
         private async UniTask<HttpResponse> SendRawAsync(string url, string method, byte[] body,

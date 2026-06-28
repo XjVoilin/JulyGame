@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using JulyArch;
+using JulyCommon;
 using LitJson;
 using UnityEngine;
 
@@ -18,7 +19,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogException(ex);
+                JLogger.LogException(ex);
                 throw;
             }
         }
@@ -33,7 +34,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogException(ex);
+                JLogger.LogException(ex);
                 throw;
             }
         }
@@ -47,7 +48,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogException(ex);
+                JLogger.LogException(ex);
                 throw;
             }
         }
@@ -61,7 +62,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogException(ex);
+                JLogger.LogException(ex);
                 throw;
             }
         }

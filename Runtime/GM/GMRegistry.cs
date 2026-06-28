@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using JulyCommon;
 
 namespace JulyGame
 {
@@ -20,7 +21,7 @@ namespace JulyGame
             var categoryAttr = type.GetCustomAttribute<GMCategoryAttribute>();
             if (categoryAttr == null)
             {
-                UnityEngine.Debug.LogWarning($"[GM] Type {type.Name} has no [GMCategory] attribute, skipped.");
+                JLogger.LogWarning($"[GM] Type {type.Name} has no [GMCategory] attribute, skipped.");
                 return;
             }
 

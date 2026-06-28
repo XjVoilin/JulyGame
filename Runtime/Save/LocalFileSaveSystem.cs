@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -143,7 +144,7 @@ namespace JulyGame
                 catch (Exception ex)
                 {
                     lastException = ex;
-                    Debug.LogWarning(
+                    JLogger.LogWarning(
                         $"[LocalFileSaveSystem] 保存失败 (尝试 {attempt + 1}/{MaxRetryCount}): {key}, 错误: {ex.Message}");
                 }
 
@@ -182,7 +183,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[LocalFileSaveSystem] 备份失败: {key}, 错误: {ex.Message}");
+                JLogger.LogWarning($"[LocalFileSaveSystem] 备份失败: {key}, 错误: {ex.Message}");
                 return null;
             }
         }
@@ -204,7 +205,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[LocalFileSaveSystem] 恢复备份失败: {key}, 错误: {ex.Message}");
+                JLogger.LogError($"[LocalFileSaveSystem] 恢复备份失败: {key}, 错误: {ex.Message}");
             }
         }
 
@@ -219,7 +220,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[LocalFileSaveSystem] 删除备份失败: {backupPath}, 错误: {ex.Message}");
+                JLogger.LogWarning($"[LocalFileSaveSystem] 删除备份失败: {backupPath}, 错误: {ex.Message}");
             }
         }
 

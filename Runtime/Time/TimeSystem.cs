@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace JulyGame
 {
@@ -27,6 +30,13 @@ namespace JulyGame
             "pool.ntp.org",
             "time.google.com",
             "time.apple.com"
+        };
+
+        private static readonly string[] DefaultHttpTimeUrls =
+        {
+            "https://www.baidu.com",
+            "https://www.qq.com",
+            "https://www.apple.com"
         };
 
         public void OnUpdate(float deltaTime)
@@ -69,25 +79,55 @@ namespace JulyGame
 
         public async UniTask<bool> SyncServerTimeFromNetworkAsync(string ntpServer = null, CancellationToken ct = default)
         {
-            var servers = string.IsNullOrEmpty(ntpServer) ? DefaultNtpServers : new[] { ntpServer };
-            foreach (var server in servers)
+            var urls = string.IsNullOrEmpty(ntpServer) ? DefaultHttpTimeUrls : new[] { ntpServer };
+            foreach (var url in urls)
             {
                 if (ct.IsCancellationRequested) return false;
                 try
                 {
-                    var ntpTime = await GetNtpTimeAsync(server, ct);
-                    if (ntpTime.HasValue)
+                    var httpTime = await GetHttpTimeAsync(url, ct);
+                    if (httpTime.HasValue)
                     {
-                        SyncServerTime(ntpTime.Value);
+                        SyncServerTime(httpTime.Value);
+                        JLogger.Log($"[TimeSystem] Server time synced via {url}, offset={_serverTimeOffset:F1}s");
                         return true;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[TimeSystem] NTP sync failed from {server}: {ex.Message}");
+                    JLogger.LogWarning($"[TimeSystem] HTTP time sync failed from {url}: {ex.Message}");
                 }
             }
+            JLogger.LogWarning("[TimeSystem] Server time sync failed, all sources exhausted. Falling back to local time.");
             return false;
+        }
+
+        private static async UniTask<DateTime?> GetHttpTimeAsync(string url, CancellationToken ct = default)
+        {
+            using var request = UnityWebRequest.Head(url);
+            request.timeout = 5;
+
+            try
+            {
+                await request.SendWebRequest().WithCancellation(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+
+            if (request.result != UnityWebRequest.Result.Success)
+                return null;
+
+            var dateHeader = request.GetResponseHeader("Date");
+            if (string.IsNullOrEmpty(dateHeader))
+                return null;
+
+            if (DateTime.TryParseExact(dateHeader, "r", CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal, out var serverTime))
+                return serverTime;
+
+            return null;
         }
 
         private async UniTask<DateTime?> GetNtpTimeAsync(string ntpServer, CancellationToken ct = default)
@@ -127,7 +167,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[TimeSystem] NTP request failed ({ntpServer}): {ex.Message}");
+                    JLogger.LogWarning($"[TimeSystem] NTP request failed ({ntpServer}): {ex.Message}");
                 return null;
             }
         }
@@ -267,7 +307,7 @@ namespace JulyGame
                 if (timer.RemainingTime > 0) continue;
 
                 try { timer.Callback?.Invoke(); }
-                catch (Exception ex) { Debug.LogException(ex); }
+                catch (Exception ex) { JLogger.LogException(ex); }
 
                 if (timer.IsRepeat)
                 {

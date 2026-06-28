@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 using UnityEngine.Profiling;
 using Debug = UnityEngine.Debug;
@@ -352,7 +353,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[PerformanceSystem] Save failed: {ex.Message}");
+                JLogger.LogError($"[PerformanceSystem] Save failed: {ex.Message}");
                 return false;
             }
         }
@@ -368,7 +369,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[PerformanceSystem] Load failed: {ex.Message}");
+                JLogger.LogError($"[PerformanceSystem] Load failed: {ex.Message}");
                 return null;
             }
         }

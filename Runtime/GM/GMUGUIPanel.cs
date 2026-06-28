@@ -1,6 +1,7 @@
 #if JULYGF_DEBUG
 using System;
 using System.Collections.Generic;
+using JulyCommon;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -546,12 +547,12 @@ namespace JulyGame
                 for (int i = 0; i < bindings.Length; i++)
                     args[i] = bindings[i]();
                 cmd.Invoke(args);
-                Debug.Log($"[GM] Executed: {cmd.DisplayName}");
+                JLogger.Log($"[GM] Executed: {cmd.DisplayName}");
                 if (cmd.CloseAfter) Hide();
             }
             catch (Exception e)
             {
-                Debug.LogError($"[GM] Error executing {cmd.DisplayName}: {e.Message}");
+                JLogger.LogError($"[GM] Error executing {cmd.DisplayName}: {e.Message}");
             }
         }
 

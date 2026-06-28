@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -27,7 +28,7 @@ namespace JulyGame
 
             if (_pools.ContainsKey(key))
             {
-                Debug.LogWarning($"[PoolSystem] 对象池已存在: {key}，将返回现有池");
+                JLogger.LogWarning($"[PoolSystem] 对象池已存在: {key}，将返回现有池");
                 return GetPool<T>();
             }
 
@@ -53,7 +54,7 @@ namespace JulyGame
             var pool = GetPool<T>();
             if (pool == null)
             {
-                Debug.LogWarning($"[PoolSystem] {typeof(T).Name} 的池子不存在，不能回收");
+                JLogger.LogWarning($"[PoolSystem] {typeof(T).Name} 的池子不存在，不能回收");
                 return;
             }
             pool.Return(obj);

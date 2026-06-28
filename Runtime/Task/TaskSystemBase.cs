@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame.Task
@@ -494,7 +495,7 @@ namespace JulyGame.Task
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[TaskSystem] UnlockRule evaluation failed for task {task.TaskId}: {ex.Message}");
+                    JLogger.LogError($"[TaskSystem] UnlockRule evaluation failed for task {task.TaskId}: {ex.Message}");
                     return false;
                 }
             }
@@ -530,7 +531,7 @@ namespace JulyGame.Task
                 try { cond.Reset(); }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[TaskSystem] Condition.Reset failed for task {task.TaskId} cond {cond.ConditionId}: {ex.Message}");
+                    JLogger.LogError($"[TaskSystem] Condition.Reset failed for task {task.TaskId} cond {cond.ConditionId}: {ex.Message}");
                 }
             }
 

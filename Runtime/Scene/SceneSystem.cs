@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -67,7 +68,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SceneSystem] 场景 {sceneName} 加载失败: {ex.Message}");
+                JLogger.LogError($"[SceneSystem] 场景 {sceneName} 加载失败: {ex.Message}");
                 throw;
             }
         }
@@ -93,7 +94,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SceneSystem] 场景 {sceneName} 卸载失败: {ex.Message}");
+                JLogger.LogError($"[SceneSystem] 场景 {sceneName} 卸载失败: {ex.Message}");
 
                 Publish(new SceneUnloadCompleteEvent
                 {
@@ -134,7 +135,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SceneSystem] 场景切换失败: {fromSceneName ?? "无"} -> {sceneName}, 错误: {ex.Message}");
+                JLogger.LogError($"[SceneSystem] 场景切换失败: {fromSceneName ?? "无"} -> {sceneName}, 错误: {ex.Message}");
                 throw;
             }
         }
@@ -143,7 +144,7 @@ namespace JulyGame
         {
             if (_sceneStack.Count == 0)
             {
-                Debug.LogWarning("[SceneSystem] 场景栈为空，无法返回上一场景");
+                JLogger.LogWarning("[SceneSystem] 场景栈为空，无法返回上一场景");
                 return null;
             }
 
@@ -172,7 +173,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SceneSystem] 返回场景失败: {fromSceneName ?? "无"} -> {previousSceneName}, 错误: {ex.Message}");
+                JLogger.LogError($"[SceneSystem] 返回场景失败: {fromSceneName ?? "无"} -> {previousSceneName}, 错误: {ex.Message}");
                 throw;
             }
         }

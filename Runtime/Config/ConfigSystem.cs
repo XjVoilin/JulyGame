@@ -1,4 +1,5 @@
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -26,7 +27,7 @@ namespace JulyGame
                 return t;
             if (MainProvider != null && MainProvider.TryGetTable<T>(out t))
                 return t;
-            Debug.LogError($"[ConfigSystem] 配置表 {typeof(T).Name} 未找到");
+            JLogger.LogError($"[ConfigSystem] 配置表 {typeof(T).Name} 未找到");
             return null;
         }
 

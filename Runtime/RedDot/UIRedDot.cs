@@ -1,4 +1,5 @@
 using JulyArch;
+using JulyCommon;
 using TMPro;
 using UnityEngine;
 
@@ -96,7 +97,7 @@ namespace JulyGame.RedDot
             if (visual == null)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                Debug.LogWarning($"[UIRedDot] Key「{_key}」类型 {type}，Prefab 中缺少对应视觉根。", this);
+                JLogger.LogWarning($"[UIRedDot] Key「{_key}」类型 {type}，Prefab 中缺少对应视觉根。", this);
 #endif
                 HideAll();
                 return;

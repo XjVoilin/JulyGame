@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -20,7 +21,7 @@ namespace JulyGame
         protected override UniTask OnInitializeAsync()
         {
             if (MainProvider == null)
-                Debug.LogWarning("[LocalizationSystem] MainProvider 未设置。请在 PreInitializeAsync 中调用 SetMainProvider 配置本地化数据源。");
+                JLogger.LogWarning("[LocalizationSystem] MainProvider 未设置。请在 PreInitializeAsync 中调用 SetMainProvider 配置本地化数据源。");
             return UniTask.CompletedTask;
         }
 
@@ -124,7 +125,7 @@ namespace JulyGame
         {
             if (languageCode == _currentLanguage)
             {
-                Debug.LogWarning("[LocalizationSystem] Cannot unload current language");
+                JLogger.LogWarning("[LocalizationSystem] Cannot unload current language");
                 return;
             }
             _mainLanguageData.Remove(languageCode);

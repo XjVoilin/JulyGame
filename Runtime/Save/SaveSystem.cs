@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -142,7 +143,7 @@ namespace JulyGame
             lock (_lock)
             {
                 if (_registered.ContainsKey(key))
-                    Debug.LogWarning($"[SaveSystem] 存档数据已注册，将覆盖: {key}");
+                    JLogger.LogWarning($"[SaveSystem] 存档数据已注册，将覆盖: {key}");
 
                 _registered[key] = data;
             }
@@ -199,7 +200,7 @@ namespace JulyGame
             {
                 if (!_registered.ContainsKey(key))
                 {
-                    Debug.LogWarning($"[SaveSystem] 无法标记脏数据，数据未注册: {key}");
+                    JLogger.LogWarning($"[SaveSystem] 无法标记脏数据，数据未注册: {key}");
                     return false;
                 }
 
@@ -419,7 +420,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SaveSystem] 删除失败: {key}, 错误: {ex.Message}");
+                JLogger.LogError($"[SaveSystem] 删除失败: {key}, 错误: {ex.Message}");
                 return false;
             }
         }
@@ -449,7 +450,7 @@ namespace JulyGame
             {
                 if (string.IsNullOrEmpty(key))
                 {
-                    Debug.LogWarning("[SaveSystem] 存档key不能为空");
+                    JLogger.LogWarning("[SaveSystem] 存档key不能为空");
                     return default;
                 }
 
@@ -459,7 +460,7 @@ namespace JulyGame
                 var rawBytes = await ReadDataAsync(key, ct);
                 if (rawBytes == null || rawBytes.Length == 0)
                 {
-                    Debug.LogWarning($"[SaveSystem] 存档数据为空: {key}");
+                    JLogger.LogWarning($"[SaveSystem] 存档数据为空: {key}");
                     return default;
                 }
 
@@ -467,12 +468,12 @@ namespace JulyGame
             }
             catch (OperationCanceledException)
             {
-                Debug.LogWarning($"[SaveSystem] 加载操作已取消: {key}");
+                JLogger.LogWarning($"[SaveSystem] 加载操作已取消: {key}");
                 return default;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SaveSystem] 加载失败: {key}, 错误: {ex.Message}");
+                JLogger.LogError($"[SaveSystem] 加载失败: {key}, 错误: {ex.Message}");
                 return default;
             }
         }
@@ -490,7 +491,7 @@ namespace JulyGame
             var serializeSystem = GetSerializeSystem();
             if (serializeSystem == null)
             {
-                Debug.LogError("[SaveSystem] ISerializeSystem 未注册，无法保存");
+                JLogger.LogError("[SaveSystem] ISerializeSystem 未注册，无法保存");
                 return (null, SaveFailureReason.SerializationFailed);
             }
 
@@ -500,13 +501,13 @@ namespace JulyGame
                 bytes = serializeSystem.Serialize(data);
                 if (bytes == null || bytes.Length == 0)
                 {
-                    Debug.LogWarning($"[SaveSystem] 序列化数据为空: {key}");
+                    JLogger.LogWarning($"[SaveSystem] 序列化数据为空: {key}");
                     return (null, SaveFailureReason.SerializationFailed);
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogException(ex);
+                JLogger.LogException(ex);
                 return (null, SaveFailureReason.SerializationFailed);
             }
 
@@ -518,7 +519,7 @@ namespace JulyGame
                     var encryptedBytes = encryptionSystem.Encrypt(bytes);
                     if (encryptedBytes == null || encryptedBytes.Length == 0)
                     {
-                        Debug.LogError($"[SaveSystem] 加密失败: {key}");
+                        JLogger.LogError($"[SaveSystem] 加密失败: {key}");
                         return (null, SaveFailureReason.EncryptionFailed);
                     }
 
@@ -526,7 +527,7 @@ namespace JulyGame
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogException(ex);
+                    JLogger.LogException(ex);
                     return (null, SaveFailureReason.EncryptionFailed);
                 }
             }
@@ -549,7 +550,7 @@ namespace JulyGame
                 var decryptedBytes = encryptionSystem.Decrypt(bytes);
                 if (decryptedBytes == null || decryptedBytes.Length == 0)
                 {
-                    Debug.LogError($"[SaveSystem] 解密失败: {key}");
+                    JLogger.LogError($"[SaveSystem] 解密失败: {key}");
                     return default;
                 }
 
@@ -559,7 +560,7 @@ namespace JulyGame
             var serializeSystem = GetSerializeSystem();
             if (serializeSystem == null)
             {
-                Debug.LogError("[SaveSystem] ISerializeSystem 未注册，无法加载");
+                JLogger.LogError("[SaveSystem] ISerializeSystem 未注册，无法加载");
                 return default;
             }
 
@@ -586,7 +587,7 @@ namespace JulyGame
         {
             if (rawData.Length < 5)
             {
-                Debug.LogError($"[SaveSystem] 存档数据格式无效（长度不足）: {key}");
+                JLogger.LogError($"[SaveSystem] 存档数据格式无效（长度不足）: {key}");
                 return null;
             }
 
@@ -595,7 +596,7 @@ namespace JulyGame
 
             if (version != CurrentSaveVersion)
             {
-                Debug.LogError(
+                JLogger.LogError(
                     $"[SaveSystem] 存档版本 {version} 不受支持（当前: {CurrentSaveVersion}）, key: {key}");
                 return null;
             }
@@ -605,7 +606,7 @@ namespace JulyGame
 
             if (dataLength < 0 || offset + dataLength > rawData.Length)
             {
-                Debug.LogError($"[SaveSystem] 存档数据长度无效: {dataLength}, key: {key}");
+                JLogger.LogError($"[SaveSystem] 存档数据长度无效: {dataLength}, key: {key}");
                 return null;
             }
 

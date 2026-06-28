@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using JulyCommon;
 using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -123,7 +124,7 @@ namespace JulyGame
                 var resource = _resourceResolver();
                 if (resource == null)
                 {
-                    Debug.LogWarning("[TipManager] ResourceSystem not available");
+                    JLogger.LogWarning("[TipManager] ResourceSystem not available");
                     _loading = false;
                     return;
                 }
@@ -131,7 +132,7 @@ namespace JulyGame
                 var handle = await resource.LoadAssetAsync<GameObject>(_config.TipPrefabPath);
                 if (handle == null || !handle.IsValid)
                 {
-                    Debug.LogWarning($"[TipManager] Failed to load tip prefab: {_config.TipPrefabPath}");
+                    JLogger.LogWarning($"[TipManager] Failed to load tip prefab: {_config.TipPrefabPath}");
                     _loading = false;
                     return;
                 }
@@ -143,7 +144,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[TipManager] Prefab load error: {ex.Message}");
+                JLogger.LogWarning($"[TipManager] Prefab load error: {ex.Message}");
             }
             finally
             {

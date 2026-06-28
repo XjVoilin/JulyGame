@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Cysharp.Threading.Tasks;
 using JulyArch;
+using JulyCommon;
 using UnityEngine;
 
 namespace JulyGame
@@ -24,7 +25,7 @@ namespace JulyGame
         {
             var rawKey = _configKey ?? "JulyGF_Default_Encryption_Key_32Bytes!!";
             if (string.IsNullOrEmpty(_configKey))
-                Debug.LogWarning("[AesEncryption] Using default key — configure a custom key for production");
+                JLogger.LogWarning("[AesEncryption] Using default key — configure a custom key for production");
 
             var keyBytes = Encoding.UTF8.GetBytes(rawKey);
             using var sha256 = SHA256.Create();
@@ -56,7 +57,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[AesEncryption] Encrypt failed: {ex.Message}");
+                JLogger.LogError($"[AesEncryption] Encrypt failed: {ex.Message}");
                 return null;
             }
         }
@@ -82,7 +83,7 @@ namespace JulyGame
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[AesEncryption] Decrypt failed: {ex.Message}");
+                JLogger.LogError($"[AesEncryption] Decrypt failed: {ex.Message}");
                 return null;
             }
         }
