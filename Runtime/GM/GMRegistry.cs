@@ -13,21 +13,23 @@ namespace JulyGame
 
         public IReadOnlyList<GMCategoryInfo> Categories => _categories;
 
-        public void Register(Type type)
+        public bool Register(Type type)
         {
             if (!_registered.Add(type))
-                return;
+                return false;
 
             var categoryAttr = type.GetCustomAttribute<GMCategoryAttribute>();
             if (categoryAttr == null)
             {
                 JLogger.LogWarning($"[GM] Type {type.Name} has no [GMCategory] attribute, skipped.");
-                return;
+                _registered.Remove(type);
+                return false;
             }
 
             var category = new GMCategoryInfo
             {
-                Category = categoryAttr.Category
+                Category = categoryAttr.Category,
+                SourceType = type
             };
 
             var methods = type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly);
@@ -53,6 +55,20 @@ namespace JulyGame
 
             category.Commands.Sort((a, b) => a.Order.CompareTo(b.Order));
             _categories.Add(category);
+            return true;
+        }
+
+        public bool Unregister(Type type)
+        {
+            if (!_registered.Remove(type))
+                return false;
+
+            for (int i = _categories.Count - 1; i >= 0; i--)
+            {
+                if (_categories[i].SourceType == type)
+                    _categories.RemoveAt(i);
+            }
+            return true;
         }
 
         public void Clear()

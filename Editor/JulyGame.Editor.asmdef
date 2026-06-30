@@ -3,7 +3,9 @@
     "rootNamespace": "JulyGame.Editor",
     "references": [
         "JulyGame.Runtime",
-        "JulyEvents.Runtime"
+        "JulyEvents.Runtime",
+        "UnityEditor.UI",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [
         "Editor"

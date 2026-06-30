@@ -7,7 +7,9 @@
         "JulyGame.Runtime",
         "JulyArch.Runtime",
         "JulyEvents.Runtime",
-        "UniTask"
+        "UniTask",
+        "UnityEditor.UI",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
