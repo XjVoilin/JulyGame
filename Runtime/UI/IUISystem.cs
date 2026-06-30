@@ -57,6 +57,7 @@ namespace JulyGame
         #region Tip
 
         void ShowTip(string message, float duration = 2f);
+        void ConfigureTip(TipConfig config);
 
         #endregion
 

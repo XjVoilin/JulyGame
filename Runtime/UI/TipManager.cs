@@ -32,7 +32,28 @@ namespace JulyGame
             _config = TipConfig.Default;
         }
 
-        internal void Configure(TipConfig config) => _config = config;
+        internal void Configure(TipConfig config)
+        {
+            if (_initialized && _config.TipPrefabPath != config.TipPrefabPath)
+            {
+                for (int i = 0; i < _activeTips.Count; i++)
+                    if (_activeTips[i] != null) Object.Destroy(_activeTips[i].gameObject);
+                _activeTips.Clear();
+
+                while (_pool.Count > 0)
+                {
+                    var item = _pool.Dequeue();
+                    if (item != null) Object.Destroy(item.gameObject);
+                }
+
+                _prefabHandle?.Dispose();
+                _prefabHandle = null;
+                _tipPrefab = null;
+                _initialized = false;
+            }
+
+            _config = config;
+        }
 
         internal void Initialize()
         {

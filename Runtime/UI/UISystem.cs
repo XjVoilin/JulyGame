@@ -211,7 +211,12 @@ namespace JulyGame
         private TipConfig _tipConfig = TipConfig.Default;
 
         public void Configure(UIConfig config) => _uiConfig = config;
-        public void ConfigureTip(TipConfig config) => _tipConfig = config;
+
+        public void ConfigureTip(TipConfig config)
+        {
+            _tipConfig = config;
+            _tipManager?.Configure(config);
+        }
 
         #endregion
 
