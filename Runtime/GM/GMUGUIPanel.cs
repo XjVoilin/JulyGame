@@ -1,6 +1,7 @@
 #if JULYGF_DEBUG
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using JulyCommon;
 using TMPro;
 using UnityEngine;
@@ -549,6 +550,10 @@ namespace JulyGame
                 cmd.Invoke(args);
                 JLogger.Log($"[GM] Executed: {cmd.DisplayName}");
                 if (cmd.CloseAfter) Hide();
+            }
+            catch (TargetInvocationException e)
+            {
+                JLogger.LogException(e.InnerException ?? e);
             }
             catch (Exception e)
             {

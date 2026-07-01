@@ -1,5 +1,4 @@
 #if JULYGF_DEBUG
-using System;
 using System.Reflection;
 
 namespace JulyGame
@@ -13,17 +12,7 @@ namespace JulyGame
         public MethodInfo Method;
         public GMParamInfo[] Params;
 
-        public object Invoke(object[] args)
-        {
-            try
-            {
-                return Method.Invoke(null, args);
-            }
-            catch (TargetInvocationException e)
-            {
-                throw e.InnerException ?? e;
-            }
-        }
+        public object Invoke(object[] args) => Method.Invoke(null, args);
     }
 }
 #endif
