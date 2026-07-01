@@ -552,7 +552,7 @@ namespace JulyGame
             }
             catch (Exception e)
             {
-                JLogger.LogError($"[GM] Error executing {cmd.DisplayName}: {e.Message}");
+                JLogger.LogException(e);
             }
         }
 
