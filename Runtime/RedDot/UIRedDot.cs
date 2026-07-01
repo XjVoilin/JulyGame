@@ -40,6 +40,11 @@ namespace JulyGame.RedDot
             Refresh();
         }
 
+        private void OnDisable()
+        {
+            this.UnsubscribeAll();
+        }
+
         public void SetKey(string key)
         {
             if (_key == key) return;
