@@ -69,5 +69,12 @@ namespace JulyGame
         bool IsPreloaded(string windowName);
 
         #endregion
+
+        #region Sequencer
+
+        /// <summary>清空串行等待队列。不影响当前已打开的活跃串行窗口，也不影响 QueueMode=None 的窗口。</summary>
+        void ClearQueue();
+
+        #endregion
     }
 }

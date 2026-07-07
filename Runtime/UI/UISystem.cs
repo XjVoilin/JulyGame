@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 
 namespace JulyGame
 {
-    public class UISystem : SystemBase, IUISystem
+    public class UISystem : SystemBase, IUISystem, IUIWindowOpener
     {
         private static readonly UILayer[] AllLayers = (UILayer[])Enum.GetValues(typeof(UILayer));
 
@@ -20,6 +20,7 @@ namespace JulyGame
         private readonly Dictionary<int, GameObject> _windowMasks = new();
         private readonly Dictionary<string, ResourceHandle<GameObject>> _preloadedPrefabs = new();
         private TipManager _tipManager;
+        private UIWindowSequencer _sequencer;
 
         #region UIRoot Physical Stage
 
@@ -241,12 +242,16 @@ namespace JulyGame
         {
             CreateUIRoot();
             InitTipManager();
+            _sequencer = new UIWindowSequencer(this);
+            Subscribe<UICloseEvent>(e => _sequencer.OnWindowClosed(e.WindowId));
             return UniTask.CompletedTask;
         }
 
         protected override void OnShutdown()
         {
             CloseAll(destroy: true);
+            _sequencer?.Shutdown();
+            _sequencer = null;
             ReleaseAllMasks();
             ReleaseAllPreloads();
             MainProvider = null;
@@ -276,7 +281,18 @@ namespace JulyGame
             return await OpenAsync(options, ct);
         }
 
-        public async UniTask<UIView> OpenAsync(UIOpenOptions options, CancellationToken ct = default)
+        public UniTask<UIView> OpenAsync(UIOpenOptions options, CancellationToken ct = default)
+        {
+            if (options == null) return UniTask.FromResult<UIView>(null);
+            if (options.QueueMode != UIQueueMode.None)
+                return _sequencer.RequestAsync(options, ct);
+            return OpenCoreAsync(options, ct);
+        }
+
+        UniTask<UIView> IUIWindowOpener.OpenCoreAsync(UIOpenOptions options, CancellationToken ct)
+            => OpenCoreAsync(options, ct);
+
+        internal async UniTask<UIView> OpenCoreAsync(UIOpenOptions options, CancellationToken ct = default)
         {
             if (options == null) return null;
 
@@ -323,6 +339,7 @@ namespace JulyGame
                 IgnoreSafeArea = options.IgnoreSafeArea,
                 CanvasGroup = canvasGroup,
                 CloseAnimationType = options.CloseAnimationType,
+                QueueMode = options.QueueMode,
             };
 
             if (canvasGroup != null)
@@ -547,6 +564,12 @@ namespace JulyGame
 
         #endregion
 
+        #region Sequencer
+
+        public void ClearQueue() => _sequencer?.Clear();
+
+        #endregion
+
         #region Internal
 
         private UIOpenOptions ResolveOptions(int windowId)
@@ -572,6 +595,7 @@ namespace JulyGame
             await strategy.PlayAsync(info.GameObject, false, ct);
 
             info.View.InternalAfterClose();
+
             ReleaseMask(windowId);
 
             RemoveFromStack(windowId);
@@ -595,6 +619,7 @@ namespace JulyGame
 
             info.View.InternalClose();
             info.View.InternalAfterClose();
+
             ReleaseMask(windowId);
 
             RemoveFromStack(windowId);
