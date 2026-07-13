@@ -9,7 +9,7 @@ namespace JulyGame
 {
     /// <summary>
     /// Toast Tip 管理器 — 由 UISystem 持有，负责 Tip 对象池、容器、显示逻辑。
-    /// 首次 ShowTip 时懒加载预制体，加载期间的消息会被丢弃。
+    /// 首次 ShowTip 时懒加载预制体，加载期间的消息会在资源就绪后按顺序显示。
     /// </summary>
     internal sealed class TipManager
     {
@@ -22,6 +22,7 @@ namespace JulyGame
 
         private readonly Queue<UITipItem> _pool = new();
         private readonly List<UITipItem> _activeTips = new();
+        private readonly Queue<TipRequest> _pendingTips = new();
 
         private bool _loading;
         private bool _initialized;
@@ -66,10 +67,16 @@ namespace JulyGame
 
             if (!_initialized)
             {
+                _pendingTips.Enqueue(new TipRequest(message, duration));
                 if (!_loading) LoadPrefabAsync();
                 return;
             }
 
+            ShowInitialized(message, duration);
+        }
+
+        private void ShowInitialized(string message, float duration)
+        {
             for (int i = 0; i < _activeTips.Count; i++)
             {
                 if (_activeTips[i] != null && _activeTips[i].Message == message)
@@ -95,6 +102,7 @@ namespace JulyGame
         {
             _activeTips.Clear();
             _pool.Clear();
+            _pendingTips.Clear();
             _prefabHandle?.Dispose();
             _prefabHandle = null;
             _tipPrefab = null;
@@ -136,7 +144,11 @@ namespace JulyGame
 
         private async void LoadPrefabAsync()
         {
-            if (string.IsNullOrEmpty(_config.TipPrefabPath)) return;
+            if (string.IsNullOrEmpty(_config.TipPrefabPath))
+            {
+                _pendingTips.Clear();
+                return;
+            }
 
             _loading = true;
 
@@ -146,6 +158,7 @@ namespace JulyGame
                 if (resource == null)
                 {
                     JLogger.LogWarning("[TipManager] ResourceSystem not available");
+                    _pendingTips.Clear();
                     _loading = false;
                     return;
                 }
@@ -154,6 +167,7 @@ namespace JulyGame
                 if (handle == null || !handle.IsValid)
                 {
                     JLogger.LogWarning($"[TipManager] Failed to load tip prefab: {_config.TipPrefabPath}");
+                    _pendingTips.Clear();
                     _loading = false;
                     return;
                 }
@@ -162,14 +176,25 @@ namespace JulyGame
                 _tipPrefab = handle.Asset;
                 WarmupPool();
                 _initialized = true;
+                ShowPendingTips();
             }
             catch (Exception ex)
             {
                 JLogger.LogWarning($"[TipManager] Prefab load error: {ex.Message}");
+                _pendingTips.Clear();
             }
             finally
             {
                 _loading = false;
+            }
+        }
+
+        private void ShowPendingTips()
+        {
+            while (_pendingTips.Count > 0)
+            {
+                var request = _pendingTips.Dequeue();
+                ShowInitialized(request.Message, request.Duration);
             }
         }
 
@@ -230,6 +255,18 @@ namespace JulyGame
                 _pool.Enqueue(tip);
             else
                 Object.Destroy(tip.gameObject);
+        }
+
+        private readonly struct TipRequest
+        {
+            internal readonly string Message;
+            internal readonly float Duration;
+
+            internal TipRequest(string message, float duration)
+            {
+                Message = message;
+                Duration = duration;
+            }
         }
     }
 }
