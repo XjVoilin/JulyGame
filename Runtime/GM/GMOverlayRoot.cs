@@ -1,7 +1,6 @@
 #if JULYGF_DEBUG
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace JulyGame
@@ -23,7 +22,6 @@ namespace JulyGame
             scaler.matchWidthOrHeight = 0.5f;
 
             go.AddComponent<GraphicRaycaster>();
-            EnsureEventSystem();
 
             var root = go.AddComponent<GMOverlayRoot>();
             var canvasTransform = go.transform;
@@ -71,16 +69,6 @@ namespace JulyGame
 
             go.SetActive(false);
             return go;
-        }
-
-        private static void EnsureEventSystem()
-        {
-            if (EventSystem.current != null) return;
-
-            var es = new GameObject("[EventSystem]");
-            es.AddComponent<EventSystem>();
-            es.AddComponent<StandaloneInputModule>();
-            DontDestroyOnLoad(es);
         }
     }
 

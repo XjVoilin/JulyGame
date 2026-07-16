@@ -6,6 +6,7 @@ using Cysharp.Threading.Tasks;
 using JulyArch;
 using JulyCommon;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
@@ -123,7 +124,11 @@ namespace JulyGame
                 _uiCamera = _uiRootGo.GetComponentInChildren<Camera>();
                 var existingStaging = GameObject.Find("[UI_Staging]");
                 _stagingRoot = existingStaging != null ? existingStaging.transform : null;
-                if (_uiCamera != null && _stagingRoot != null) return;
+                if (_uiCamera != null && _stagingRoot != null)
+                {
+                    AdoptOrCreateEventSystem();
+                    return;
+                }
             }
 
             _uiRootGo = new GameObject("[UIRoot]");
@@ -151,6 +156,27 @@ namespace JulyGame
             Object.DontDestroyOnLoad(stagingGo);
             stagingGo.hideFlags = HideFlags.HideInHierarchy;
             _stagingRoot = stagingGo.transform;
+
+            AdoptOrCreateEventSystem();
+        }
+
+        private void AdoptOrCreateEventSystem()
+        {
+            var eventSystem = EventSystem.current;
+            GameObject eventSystemGo;
+
+            if (eventSystem != null)
+            {
+                eventSystemGo = eventSystem.gameObject;
+            }
+            else
+            {
+                eventSystemGo = new GameObject("[EventSystem]");
+                eventSystemGo.AddComponent<EventSystem>();
+                eventSystemGo.AddComponent<StandaloneInputModule>();
+            }
+
+            eventSystemGo.transform.SetParent(_uiRootGo.transform, false);
         }
 
         private void CreateMask()
