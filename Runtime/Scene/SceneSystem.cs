@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using JulyArch;
@@ -106,7 +107,15 @@ namespace JulyGame
             }
         }
 
-        public async UniTask<Scene> SwitchSceneAsync(string sceneName, CancellationToken ct = default)
+        public UniTask<Scene> SwitchSceneAsync(string sceneName, CancellationToken ct = default)
+        {
+            return SwitchSceneAsync(sceneName, deferUnusedAssetCleanup: false, ct);
+        }
+
+        public async UniTask<Scene> SwitchSceneAsync(
+            string sceneName,
+            bool deferUnusedAssetCleanup,
+            CancellationToken ct = default)
         {
             var fromSceneName = _currentSceneName;
 
@@ -122,7 +131,18 @@ namespace JulyGame
                     _sceneStack.Push(fromSceneName);
 
                 var scene = await LoadSceneAsync(sceneName, LoadSceneMode.Single, ct);
-                await _resourceSystem.UnloadUnusedAssetsAsync();
+                if (deferUnusedAssetCleanup)
+                {
+                    JLogger.Log($"[SceneSystem] Deferred unused asset cleanup: {fromSceneName ?? "None"} -> {sceneName}");
+                }
+                else
+                {
+                    var cleanupWatch = Stopwatch.StartNew();
+                    await _resourceSystem.UnloadUnusedAssetsAsync();
+                    cleanupWatch.Stop();
+                    JLogger.Log($"[SceneSystem] UnloadUnusedAssets completed in {cleanupWatch.ElapsedMilliseconds}ms: " +
+                                $"{fromSceneName ?? "None"} -> {sceneName}");
+                }
 
                 Publish(new SceneSwitchCompleteEvent
                 {

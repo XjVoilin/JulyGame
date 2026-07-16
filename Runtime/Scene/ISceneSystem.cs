@@ -25,6 +25,8 @@ namespace JulyGame
         #region Switch / GoBack
 
         UniTask<Scene> SwitchSceneAsync(string sceneName, CancellationToken ct = default);
+        UniTask<Scene> SwitchSceneAsync(string sceneName, bool deferUnusedAssetCleanup,
+            CancellationToken ct = default);
         UniTask<Scene?> GoBackAsync(CancellationToken ct = default);
         void ClearSceneStack();
 
