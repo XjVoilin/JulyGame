@@ -1,63 +1,46 @@
 namespace JulyGame.Task
 {
-    /// <summary>任务注册到系统时发布。</summary>
-    public struct TaskRegisteredEvent
+    /// <summary>本地命令改变任务累计值后发送。</summary>
+    public readonly struct TaskValueChangedEvent
     {
-        public int TaskId;
-        public TaskData TaskData;
+        public int TaskId { get; }
+        public long PreviousValue { get; }
+        public long CurrentValue { get; }
+
+        public TaskValueChangedEvent(int taskId, long previousValue, long currentValue)
+        {
+            TaskId = taskId;
+            PreviousValue = previousValue;
+            CurrentValue = currentValue;
+        }
     }
 
-    /// <summary>任务从 Locked 进入 InProgress（解锁规则全部满足或手动解锁）时发布。</summary>
-    public struct TaskUnlockedEvent
+    /// <summary>本地命令改变任务阶段状态后发送。</summary>
+    public readonly struct TaskStageStateChangedEvent
     {
-        public int TaskId;
-        public TaskData TaskData;
+        public int TaskId { get; }
+        public int StageIndex { get; }
+        public TaskState PreviousState { get; }
+        public TaskState CurrentState { get; }
+
+        public TaskStageStateChangedEvent(
+            int taskId,
+            int stageIndex,
+            TaskState previousState,
+            TaskState currentState)
+        {
+            TaskId = taskId;
+            StageIndex = stageIndex;
+            PreviousState = previousState;
+            CurrentState = currentState;
+        }
     }
 
-    /// <summary>某个条件进度发生变化时发布，供 UI 刷新。</summary>
-    public struct TaskProgressUpdatedEvent
+    /// <summary>
+    /// 完整任务集合原子替换成功后发送的标记事件。
+    /// 全量替换不会逐任务发送数值或阶段状态变化事件。
+    /// </summary>
+    public readonly struct TaskCollectionReplacedEvent
     {
-        public int TaskId;
-        public int ConditionId;
-        public float OldProgress;
-        public float NewProgress;
-        /// <summary>本次变化是否使该条件从未达成变为达成。</summary>
-        public bool ConditionJustCompleted;
-    }
-
-    /// <summary>某个条件首次达成时发布。</summary>
-    public struct TaskConditionCompletedEvent
-    {
-        public int TaskId;
-        public int ConditionId;
-    }
-
-    /// <summary>任务全部条件达成、进入 Completed 时发布。接入方通常在此发奖。</summary>
-    public struct TaskCompletedEvent
-    {
-        public int TaskId;
-        public TaskData TaskData;
-    }
-
-    /// <summary>任务状态发生任意流转时发布（解锁、完成、重置都会附带触发）。</summary>
-    public struct TaskStateChangedEvent
-    {
-        public int TaskId;
-        public ETaskState OldState;
-        public ETaskState NewState;
-        public TaskData TaskData;
-    }
-
-    /// <summary>任务被重置（手动或重置策略跨越边界）回到 InProgress 时发布。</summary>
-    public struct TaskResetEvent
-    {
-        public int TaskId;
-        public TaskData TaskData;
-    }
-
-    /// <summary>任务从系统中移除时发布。</summary>
-    public struct TaskRemovedEvent
-    {
-        public int TaskId;
     }
 }

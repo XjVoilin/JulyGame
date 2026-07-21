@@ -3,58 +3,24 @@ using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using JulyArch;
 using JulyCommon;
-using UnityEngine;
 
 namespace JulyGame.Task
 {
     /// <summary>
-    /// 任务系统基座。提供"解锁 → 进行 → 完成 → 重置"的通用状态机骨架，不含任何业务语义。
-    /// 接入方继承本类，在 <see cref="OnConfigure"/> 中通过 <see cref="RegisterTask"/> 注册由
-    /// <see cref="ITaskCondition"/> / <see cref="ITaskUnlockRule"/> / <see cref="ITaskResetPolicy"/>
-    /// 组合而成的任务，并订阅 TaskXxxEvent 接管发奖、UI 等表现层逻辑。
+    /// 任务核心接入 July 系统生命周期的实现。
+    /// 项目只需注册一个派生系统，并可在同一实例上增加项目能力，但不能重写核心任务命令。
     /// </summary>
-    /// <remarks>
-    /// 评估模型（push 驱动）：条件与解锁规则在注册时被注入变更通知回调
-    /// （<see cref="ITaskCondition.BindChangeNotifier"/> /
-    /// <see cref="ITaskUnlockRule.BindChangeNotifier"/>），
-    /// 内部状态变化后由接入方主动调用回调，基座收到通知后同步评估**单个任务**的状态流转。
-    /// 不做每帧全量轮询，进度变更到事件广播零延迟。
-    /// <para/>
-    /// 重置为时间驱动、批量检查：接入方在自身时间源（App 心跳、前台恢复等）中调用
-    /// <see cref="SweepResets"/>，基座据 <see cref="ITaskResetPolicy"/> 的边界统一判定与重置。
-    /// </remarks>
-    public abstract class TaskSystemBase : SystemBase
+    public abstract class TaskSystemBase : SystemBase, ITaskSystem
     {
-        private TaskRepository _repo;
-
-        // 条件缓存：进度用于差量检测触发 TaskProgressUpdatedEvent，完成态用于检测条件完成边沿
-        // 触发 TaskConditionCompletedEvent。键 = PackKey(taskId, conditionId)。
-        private readonly Dictionary<long, CondCache> _condCache = new();
-
-        // push 静默标志：基座主动调 Reset/CacheConditionState 期间置 true，忽略扩展点的 notifier 回调。
-        private bool _muted;
-
-        // 单任务重入保护：评估某任务期间若同任务再次 push，置 pending 并在本次结束后补跑。
-        private bool _evaluating;
-        private int _evaluatingTaskId;
-        private bool _evaluatingPending;
-
-        /// <summary>单个条件的展示进度 + 完成态缓存。</summary>
-        private readonly struct CondCache
-        {
-            public readonly float Progress;
-            public readonly bool Completed;
-
-            public CondCache(float progress, bool completed)
-            {
-                Progress = progress;
-                Completed = completed;
-            }
-        }
+        private readonly Queue<PendingTaskEvent> _eventQueue = new();
+        private Dictionary<int, TaskData> _tasks = new();
+        private bool _isDispatching;
 
         protected sealed override UniTask OnInitializeAsync()
         {
-            _repo = ResolveRepository();
+            _tasks = new Dictionary<int, TaskData>();
+            _eventQueue.Clear();
+            _isDispatching = false;
             return UniTask.CompletedTask;
         }
 
@@ -65,510 +31,413 @@ namespace JulyGame.Task
 
         protected sealed override void OnShutdown()
         {
-            OnDispose();
-
-            foreach (var pair in _repo.All)
-                ClearExtensionSubscriptions(pair.Value);
-
-            _condCache.Clear();
-        }
-
-        /// <summary>接入方返回本模块唯一的任务数据容器（通常持有于项目 Store 中）。</summary>
-        protected abstract TaskRepository ResolveRepository();
-
-        /// <summary>接入方在此注册任务。基座启动时调用一次。</summary>
-        protected abstract void OnConfigure();
-
-        /// <summary>接入方清理钩子。基座关闭时调用一次。</summary>
-        protected virtual void OnDispose() { }
-
-        /// <summary>UTC 时间源。可覆写以接入服务器对时或便于测试。</summary>
-        protected virtual DateTime OnGetUtcNow() => DateTime.UtcNow;
-
-        #region Registration
-
-        /// <summary>
-        /// 注册一个任务交由基座托管。重复 TaskId 会覆盖。
-        /// 注册时基座会：绑定条件/规则的 notifier、计算重置边界、对 Locked 立即 TryUnlock、
-        /// 对 InProgress 缓存条件状态并做一次完成检查。
-        /// </summary>
-        public void RegisterTask(TaskData task)
-        {
-            if (task == null) return;
-            _repo.Add(task);
-
-            BindNotifiers(task);
-
-            if (task.ResetPolicy != null && _repo.GetResetBoundary(task.TaskId) == 0)
-            {
-                var boundary = task.ResetPolicy.GetNextResetUtc(OnGetUtcNow());
-                _repo.SetResetBoundary(task.TaskId, boundary.Ticks);
-            }
-
-            SyncExtensionActivation(task);
-
-            Publish(new TaskRegisteredEvent { TaskId = task.TaskId, TaskData = task });
-
-            if (task.State == ETaskState.Locked)
-            {
-                TryUnlock(task);
-            }
-            else if (task.State == ETaskState.InProgress)
-            {
-                _muted = true;
-                CacheConditionState(task);
-                _muted = false;
-                EvaluateInProgressTask(task);
-            }
-        }
-
-        /// <summary>
-        /// 从系统中移除任务，并清理其状态索引、重置边界与进度/完成缓存。
-        /// </summary>
-        /// <returns>任务存在并被移除返回 true。</returns>
-        public bool UnregisterTask(int id)
-        {
-            var task = _repo.Get(id);
-            if (task == null) return false;
-
-            ClearExtensionSubscriptions(task);
-            ClearConditionCache(task);
-
-            if (!_repo.Remove(id)) return false;
-
-            Publish(new TaskRemovedEvent { TaskId = id });
-            return true;
-        }
-
-        #endregion
-
-        #region State Machine (escape hatches)
-
-        /// <summary>手动重置已完成任务回到 InProgress，并清零其条件进度。仅对 Completed 任务有效。</summary>
-        public bool ResetTask(int id)
-        {
-            var task = _repo.Get(id);
-            if (task == null || task.State != ETaskState.Completed) return false;
-
-            _repo.SetState(id, ETaskState.InProgress);
-            ResetConditions(task);
-            SyncExtensionActivation(task);
-
-            Publish(new TaskStateChangedEvent
-            {
-                TaskId = id, OldState = ETaskState.Completed,
-                NewState = ETaskState.InProgress, TaskData = task
-            });
-            Publish(new TaskResetEvent { TaskId = id, TaskData = task });
-
-            EvaluateInProgressTask(task);
-
-            return true;
-        }
-
-        #endregion
-
-        #region Queries
-
-        public TaskData GetTask(int id) => _repo.Get(id);
-
-        public IEnumerable<TaskData> GetAll() => _repo.All.Values;
-
-        /// <summary>下一次重置的 UTC 时间；无重置策略返回 null。</summary>
-        public DateTime? GetNextResetUtc(int id)
-        {
-            var task = _repo.Get(id);
-            if (task?.ResetPolicy == null) return null;
-            var ticks = _repo.GetResetBoundary(id);
-            return ticks > 0 ? new DateTime(ticks, DateTimeKind.Utc) : null;
-        }
-
-        #endregion
-
-        #region Save / Load
-
-        /// <summary>从数据包恢复任务状态与重置边界，并按状态对齐扩展点激活。需在任务注册完成后调用。</summary>
-        public void ImportData(TaskSaveBundle bundle)
-        {
-            if (bundle == null) return;
-
-            _repo.Import(bundle);
-
-            _muted = true;
-            foreach (var pair in _repo.All)
-            {
-                SyncExtensionActivation(pair.Value);
-
-                if (pair.Value.State == ETaskState.InProgress)
-                    CacheConditionState(pair.Value);
-            }
-            _muted = false;
-        }
-
-        #endregion
-
-        #region SweepResets (explicit batch check)
-
-        /// <summary>
-        /// 批量检查所有带重置策略的任务是否跨越了重置边界，跨越则执行重置。
-        /// 由接入方在合适时机（前台恢复、App 心跳等）显式调用。
-        /// </summary>
-        public void SweepResets()
-        {
-            var now = OnGetUtcNow();
-
-            // 先快照 id：CheckAndResetTask 会改状态，不能在遍历 _repo.All 时直接重置。
-            var ids = new List<int>();
-            foreach (var pair in _repo.All)
-            {
-                if (pair.Value.ResetPolicy != null)
-                    ids.Add(pair.Key);
-            }
-
-            for (var i = 0; i < ids.Count; i++)
-            {
-                var task = _repo.Get(ids[i]);
-                if (task?.ResetPolicy == null) continue;
-
-                CheckAndResetTask(task, now);
-            }
-        }
-
-        #endregion
-
-        #region Push evaluation (condition / unlock / reset)
-
-        private void OnConditionChanged(int taskId)
-        {
-            if (_muted) return;
-
-            var task = _repo.Get(taskId);
-            if (task == null || task.State != ETaskState.InProgress) return;
-
-            if (_evaluating && _evaluatingTaskId == taskId)
-            {
-                _evaluatingPending = true;
-                return;
-            }
-
-            EvaluateInProgressTask(task);
-        }
-
-        private void OnUnlockRuleChanged(int taskId)
-        {
-            if (_muted) return;
-
-            var task = _repo.Get(taskId);
-            if (task == null || task.State != ETaskState.Locked) return;
-
-            TryUnlock(task);
-        }
-
-        /// <summary>评估单个 InProgress 任务：差量检测进度/完成，发事件，全部完成则流转。</summary>
-        private void EvaluateInProgressTask(TaskData task)
-        {
-            _evaluating = true;
-            _evaluatingTaskId = task.TaskId;
-            _evaluatingPending = false;
-
             try
             {
-                EvaluateInProgressTaskCore(task);
+                OnDispose();
             }
             finally
             {
-                _evaluating = false;
-            }
-
-            if (_evaluatingPending)
-            {
-                _evaluatingPending = false;
-                task = _repo.Get(task.TaskId);
-                if (task != null && task.State == ETaskState.InProgress)
-                    EvaluateInProgressTask(task);
+                _tasks.Clear();
+                _eventQueue.Clear();
+                _isDispatching = false;
             }
         }
 
-        private void EvaluateInProgressTaskCore(TaskData task)
+        /// <summary>任务核心准备完成后调用的可选项目配置钩子。</summary>
+        protected virtual void OnConfigure()
         {
-            if (task.Conditions == null) return;
-
-            var allCompleted = true;
-            for (var c = 0; c < task.Conditions.Count; c++)
-            {
-                var cond = task.Conditions[c];
-                var cacheKey = PackKey(task.TaskId, cond.ConditionId);
-
-                var newProgress = cond.Progress;
-                var isCompleted = cond.IsCompleted;
-
-                _condCache.TryGetValue(cacheKey, out var cached);
-                var oldProgress = cached.Progress;
-                var wasCompleted = cached.Completed;
-
-                var justCompleted = isCompleted && !wasCompleted;
-                var progressChanged = Math.Abs(newProgress - oldProgress) > 1e-6f;
-
-                if (progressChanged || justCompleted)
-                {
-                    Publish(new TaskProgressUpdatedEvent
-                    {
-                        TaskId = task.TaskId,
-                        ConditionId = cond.ConditionId,
-                        OldProgress = oldProgress,
-                        NewProgress = newProgress,
-                        ConditionJustCompleted = justCompleted
-                    });
-                }
-
-                if (progressChanged || isCompleted != wasCompleted)
-                    _condCache[cacheKey] = new CondCache(newProgress, isCompleted);
-
-                if (justCompleted)
-                {
-                    Publish(new TaskConditionCompletedEvent
-                    {
-                        TaskId = task.TaskId,
-                        ConditionId = cond.ConditionId
-                    });
-                }
-
-                if (!isCompleted)
-                    allCompleted = false;
-            }
-
-            if (allCompleted && task.Conditions.Count > 0)
-            {
-                _repo.SetState(task.TaskId, ETaskState.Completed);
-                SyncExtensionActivation(task);
-
-                Publish(new TaskStateChangedEvent
-                {
-                    TaskId = task.TaskId, OldState = ETaskState.InProgress,
-                    NewState = ETaskState.Completed, TaskData = task
-                });
-                Publish(new TaskCompletedEvent { TaskId = task.TaskId, TaskData = task });
-            }
         }
 
-        /// <summary>检查 Locked 任务是否满足所有解锁规则，满足则流转到 InProgress。</summary>
-        private void TryUnlock(TaskData task)
+        /// <summary>任务核心清理之前调用的可选项目释放钩子。</summary>
+        protected virtual void OnDispose()
         {
-            if (!CanUnlockByRules(task)) return;
-
-            TransitionToInProgress(task);
         }
 
-        /// <summary>检查单个任务的重置边界是否已跨越，跨越则执行重置。</summary>
-        private void CheckAndResetTask(TaskData task, DateTime utcNow)
+        public bool RegisterTask(TaskData task)
         {
-            var boundary = task.ResetPolicy.GetNextResetUtc(utcNow);
-            var savedTicks = _repo.GetResetBoundary(task.TaskId);
+            if (!IsValidTask(task))
+                return false;
 
-            if (savedTicks == 0)
-            {
-                _repo.SetResetBoundary(task.TaskId, boundary.Ticks);
-                return;
-            }
-
-            if (boundary.Ticks != savedTicks)
-            {
-                _repo.SetResetBoundary(task.TaskId, boundary.Ticks);
-
-                if (task.State == ETaskState.Completed || task.State == ETaskState.InProgress)
-                {
-                    var oldState = task.State;
-                    _repo.SetState(task.TaskId, ETaskState.InProgress);
-                    ResetConditions(task);
-                    SyncExtensionActivation(task);
-
-                    if (oldState != ETaskState.InProgress)
-                    {
-                        Publish(new TaskStateChangedEvent
-                        {
-                            TaskId = task.TaskId, OldState = oldState,
-                            NewState = ETaskState.InProgress, TaskData = task
-                        });
-                    }
-
-                    Publish(new TaskResetEvent { TaskId = task.TaskId, TaskData = task });
-
-                    EvaluateInProgressTask(task);
-                }
-            }
+            return _tasks.TryAdd(task.TaskId, task);
         }
 
-        #endregion
-
-        #region Private helpers
-
-        /// <summary>
-        /// 按任务当前状态同步扩展点的激活/休眠。幂等，重复调用安全。
-        /// Condition 当且仅当 InProgress 活动；UnlockRule 当且仅当 Locked 活动。
-        /// ResetPolicy 不参与激活窗口，仅在 SweepResets 时被查询。
-        /// </summary>
-        private void SyncExtensionActivation(TaskData task)
+        public bool RemoveTask(int taskId)
         {
-            SetConditionsActive(task, task.State == ETaskState.InProgress);
-            SetRulesActive(task, task.State == ETaskState.Locked);
+            return _tasks.Remove(taskId);
         }
 
-        private void SetConditionsActive(TaskData task, bool active)
+        public bool ReplaceAllTasks(IReadOnlyList<TaskData> tasks)
         {
-            if (task.Conditions == null) return;
-            for (var i = 0; i < task.Conditions.Count; i++)
+            if (tasks == null)
+                return false;
+
+            var replacement = new Dictionary<int, TaskData>(tasks.Count);
+            for (var index = 0; index < tasks.Count; index++)
             {
-                if (task.Conditions[i] is TaskConditionBase cb)
-                {
-                    if (active) cb.Activate();
-                    else cb.Deactivate();
-                }
+                var task = tasks[index];
+                if (!IsValidTask(task) || !replacement.TryAdd(task.TaskId, task))
+                    return false;
             }
+
+            _tasks = replacement;
+            _eventQueue.Enqueue(PendingTaskEvent.CollectionReplaced());
+            DrainEvents();
+            return true;
         }
 
-        private void SetRulesActive(TaskData task, bool active)
+        public bool SetCurrentValue(int taskId, long currentValue)
         {
-            if (task.UnlockRules == null) return;
-            for (var i = 0; i < task.UnlockRules.Count; i++)
-            {
-                if (task.UnlockRules[i] is TaskUnlockRuleBase rb)
-                {
-                    if (active) rb.Activate();
-                    else rb.Deactivate();
-                }
-            }
-        }
+            if (currentValue < 0 || !_tasks.TryGetValue(taskId, out var task))
+                return false;
 
-        private void BindNotifiers(TaskData task)
-        {
-            var taskId = task.TaskId;
-
-            if (task.Conditions != null)
-            {
-                for (var i = 0; i < task.Conditions.Count; i++)
-                {
-                    var id = taskId;
-                    task.Conditions[i].BindChangeNotifier(() => OnConditionChanged(id));
-                }
-            }
-
-            if (task.UnlockRules != null)
-            {
-                for (var i = 0; i < task.UnlockRules.Count; i++)
-                {
-                    var id = taskId;
-                    task.UnlockRules[i].BindChangeNotifier(() => OnUnlockRuleChanged(id));
-                }
-            }
-        }
-
-        /// <summary>
-        /// 清理任务中继承了辅助基类的条件/解锁规则订阅的游戏事件。
-        /// 直接实现接口而未继承 Base 的扩展点由接入方自行负责清理。
-        /// </summary>
-        private void ClearExtensionSubscriptions(TaskData task)
-        {
-            if (task.Conditions != null)
-            {
-                for (var i = 0; i < task.Conditions.Count; i++)
-                    (task.Conditions[i] as TaskConditionBase)?.ClearSubscriptions();
-            }
-
-            if (task.UnlockRules != null)
-            {
-                for (var i = 0; i < task.UnlockRules.Count; i++)
-                    (task.UnlockRules[i] as TaskUnlockRuleBase)?.ClearSubscriptions();
-            }
-        }
-
-        private bool CanUnlockByRules(TaskData task)
-        {
-            if (task.UnlockRules == null || task.UnlockRules.Count == 0)
+            if (currentValue <= task.CurrentValue || !HasActiveStage(task))
                 return true;
 
-            for (var i = 0; i < task.UnlockRules.Count; i++)
+            var stages = CopyStages(task);
+            for (var stageIndex = 0; stageIndex < stages.Length; stageIndex++)
             {
-                try
+                var stage = stages[stageIndex];
+                if (stage.State == TaskState.Active && currentValue >= stage.TargetValue)
                 {
-                    if (!task.UnlockRules[i].CanUnlock())
-                        return false;
+                    stages[stageIndex] = new TaskStageData(
+                        stage.TargetValue,
+                        TaskState.Completed);
                 }
-                catch (Exception ex)
+            }
+
+            _tasks[taskId] = new TaskData(taskId, currentValue, stages);
+            _eventQueue.Enqueue(PendingTaskEvent.ValueChanged(
+                taskId,
+                task.CurrentValue,
+                currentValue));
+
+            for (var stageIndex = 0; stageIndex < stages.Length; stageIndex++)
+            {
+                var previousState = task.Stages[stageIndex].State;
+                var currentState = stages[stageIndex].State;
+                if (previousState != currentState)
                 {
-                    JLogger.LogError($"[TaskSystem] UnlockRule evaluation failed for task {task.TaskId}: {ex.Message}");
+                    _eventQueue.Enqueue(PendingTaskEvent.StageStateChanged(
+                        taskId,
+                        stageIndex,
+                        previousState,
+                        currentState));
+                }
+            }
+
+            DrainEvents();
+            return true;
+        }
+
+        public bool ClaimStage(int taskId, int stageIndex)
+        {
+            if (!_tasks.TryGetValue(taskId, out var task) ||
+                stageIndex < 0 ||
+                stageIndex >= task.Stages.Count)
+            {
+                return false;
+            }
+
+            var stage = task.Stages[stageIndex];
+            if (stage.State == TaskState.Claimed)
+                return true;
+
+            if (stage.State != TaskState.Completed)
+                return false;
+
+            var stages = CopyStages(task);
+            stages[stageIndex] = new TaskStageData(stage.TargetValue, TaskState.Claimed);
+            _tasks[taskId] = new TaskData(task.TaskId, task.CurrentValue, stages);
+            _eventQueue.Enqueue(PendingTaskEvent.StageStateChanged(
+                taskId,
+                stageIndex,
+                TaskState.Completed,
+                TaskState.Claimed));
+            DrainEvents();
+            return true;
+        }
+
+        public bool ResetTask(int taskId)
+        {
+            if (!_tasks.TryGetValue(taskId, out var task))
+                return false;
+
+            if (IsReset(task))
+                return true;
+
+            _tasks[taskId] = CreateResetTask(task);
+            EnqueueResetEvents(task);
+            DrainEvents();
+            return true;
+        }
+
+        public bool ResetAllTasks()
+        {
+            if (_tasks.Count == 0)
+                return true;
+
+            var taskIds = new int[_tasks.Count];
+            _tasks.Keys.CopyTo(taskIds, 0);
+            for (var index = 0; index < taskIds.Length; index++)
+            {
+                var taskId = taskIds[index];
+                var task = _tasks[taskId];
+                if (IsReset(task))
+                    continue;
+
+                _tasks[taskId] = CreateResetTask(task);
+                EnqueueResetEvents(task);
+            }
+
+            DrainEvents();
+            return true;
+        }
+
+        public bool TryGetTask(int taskId, out TaskData task)
+        {
+            return _tasks.TryGetValue(taskId, out task);
+        }
+
+        public IReadOnlyList<TaskData> GetAllTasks()
+        {
+            var snapshot = new TaskData[_tasks.Count];
+            var index = 0;
+            foreach (var task in _tasks.Values)
+                snapshot[index++] = task;
+
+            return snapshot;
+        }
+
+        private void EnqueueResetEvents(TaskData task)
+        {
+            if (task.CurrentValue != 0)
+            {
+                _eventQueue.Enqueue(PendingTaskEvent.ValueChanged(
+                    task.TaskId,
+                    task.CurrentValue,
+                    0));
+            }
+
+            for (var stageIndex = 0; stageIndex < task.Stages.Count; stageIndex++)
+            {
+                var previousState = task.Stages[stageIndex].State;
+                if (previousState != TaskState.Active)
+                {
+                    _eventQueue.Enqueue(PendingTaskEvent.StageStateChanged(
+                        task.TaskId,
+                        stageIndex,
+                        previousState,
+                        TaskState.Active));
+                }
+            }
+        }
+
+        private static TaskData CreateResetTask(TaskData task)
+        {
+            var stages = new TaskStageData[task.Stages.Count];
+            for (var stageIndex = 0; stageIndex < stages.Length; stageIndex++)
+            {
+                stages[stageIndex] = new TaskStageData(
+                    task.Stages[stageIndex].TargetValue,
+                    TaskState.Active);
+            }
+
+            return new TaskData(task.TaskId, 0, stages);
+        }
+
+        private static TaskStageData[] CopyStages(TaskData task)
+        {
+            var stages = new TaskStageData[task.Stages.Count];
+            for (var stageIndex = 0; stageIndex < stages.Length; stageIndex++)
+                stages[stageIndex] = task.Stages[stageIndex];
+
+            return stages;
+        }
+
+        private static bool HasActiveStage(TaskData task)
+        {
+            for (var stageIndex = 0; stageIndex < task.Stages.Count; stageIndex++)
+            {
+                if (task.Stages[stageIndex].State == TaskState.Active)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsReset(TaskData task)
+        {
+            if (task.CurrentValue != 0)
+                return false;
+
+            for (var stageIndex = 0; stageIndex < task.Stages.Count; stageIndex++)
+            {
+                if (task.Stages[stageIndex].State != TaskState.Active)
                     return false;
-                }
             }
 
             return true;
         }
 
-        private void TransitionToInProgress(TaskData task)
+        private static bool IsValidTask(TaskData task)
         {
-            _repo.SetState(task.TaskId, ETaskState.InProgress);
-            ResetConditions(task);
-            SyncExtensionActivation(task);
-
-            Publish(new TaskStateChangedEvent
+            if (task.TaskId <= 0 ||
+                task.CurrentValue < 0 ||
+                task.Stages == null ||
+                task.Stages.Count == 0)
             {
-                TaskId = task.TaskId, OldState = ETaskState.Locked,
-                NewState = ETaskState.InProgress, TaskData = task
-            });
-            Publish(new TaskUnlockedEvent { TaskId = task.TaskId, TaskData = task });
+                return false;
+            }
 
-            EvaluateInProgressTask(task);
+            for (var stageIndex = 0; stageIndex < task.Stages.Count; stageIndex++)
+            {
+                var stage = task.Stages[stageIndex];
+                if (stage.TargetValue <= 0 || !IsValidState(stage.State))
+                    return false;
+            }
+
+            return true;
         }
 
-        /// <summary>调用各条件的 Reset() 清零内部计数，再以清零后的值重建缓存。静默期内 notifier 被忽略。</summary>
-        private void ResetConditions(TaskData task)
+        private static bool IsValidState(TaskState state)
         {
-            if (task.Conditions == null) return;
+            return state == TaskState.Active ||
+                   state == TaskState.Completed ||
+                   state == TaskState.Claimed;
+        }
 
-            _muted = true;
-            for (var i = 0; i < task.Conditions.Count; i++)
+        private void DrainEvents()
+        {
+            if (_isDispatching)
+                return;
+
+            _isDispatching = true;
+            try
             {
-                var cond = task.Conditions[i];
-                try { cond.Reset(); }
-                catch (Exception ex)
+                while (_eventQueue.Count > 0)
                 {
-                    JLogger.LogError($"[TaskSystem] Condition.Reset failed for task {task.TaskId} cond {cond.ConditionId}: {ex.Message}");
+                    var pendingEvent = _eventQueue.Dequeue();
+                    try
+                    {
+                        PublishPendingEvent(pendingEvent);
+                    }
+                    catch (Exception exception)
+                    {
+                        JLogger.LogException(exception);
+                    }
                 }
             }
-
-            CacheConditionState(task);
-            _muted = false;
-        }
-
-        /// <summary>以各条件当前值重建进度与完成缓存（不调用 Reset）。</summary>
-        private void CacheConditionState(TaskData task)
-        {
-            if (task.Conditions == null) return;
-
-            for (var i = 0; i < task.Conditions.Count; i++)
+            finally
             {
-                var cond = task.Conditions[i];
-                var key = PackKey(task.TaskId, cond.ConditionId);
-                _condCache[key] = new CondCache(cond.Progress, cond.IsCompleted);
+                _isDispatching = false;
             }
         }
 
-        /// <summary>移除任务时清理其全部条件的缓存条目。</summary>
-        private void ClearConditionCache(TaskData task)
+        private void PublishPendingEvent(PendingTaskEvent pendingEvent)
         {
-            if (task.Conditions == null) return;
-
-            for (var i = 0; i < task.Conditions.Count; i++)
+            switch (pendingEvent.Kind)
             {
-                var key = PackKey(task.TaskId, task.Conditions[i].ConditionId);
-                _condCache.Remove(key);
+                case PendingTaskEventKind.ValueChanged:
+                    Publish(new TaskValueChangedEvent(
+                        pendingEvent.TaskId,
+                        pendingEvent.PreviousValue,
+                        pendingEvent.CurrentValue));
+                    break;
+                case PendingTaskEventKind.StageStateChanged:
+                    Publish(new TaskStageStateChangedEvent(
+                        pendingEvent.TaskId,
+                        pendingEvent.StageIndex,
+                        pendingEvent.PreviousState,
+                        pendingEvent.CurrentState));
+                    break;
+                case PendingTaskEventKind.CollectionReplaced:
+                    Publish(new TaskCollectionReplacedEvent());
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(pendingEvent),
+                        pendingEvent.Kind,
+                        "Unknown pending task event kind.");
             }
         }
+    }
 
-        private static long PackKey(int taskId, int conditionId)
+    internal enum PendingTaskEventKind
+    {
+        ValueChanged,
+        StageStateChanged,
+        CollectionReplaced
+    }
+
+    internal readonly struct PendingTaskEvent
+    {
+        public PendingTaskEventKind Kind { get; }
+        public int TaskId { get; }
+        public int StageIndex { get; }
+        public long PreviousValue { get; }
+        public long CurrentValue { get; }
+        public TaskState PreviousState { get; }
+        public TaskState CurrentState { get; }
+
+        private PendingTaskEvent(
+            PendingTaskEventKind kind,
+            int taskId,
+            int stageIndex,
+            long previousValue,
+            long currentValue,
+            TaskState previousState,
+            TaskState currentState)
         {
-            return ((long)taskId << 32) | (uint)conditionId;
+            Kind = kind;
+            TaskId = taskId;
+            StageIndex = stageIndex;
+            PreviousValue = previousValue;
+            CurrentValue = currentValue;
+            PreviousState = previousState;
+            CurrentState = currentState;
         }
 
-        #endregion
+        public static PendingTaskEvent ValueChanged(
+            int taskId,
+            long previousValue,
+            long currentValue)
+        {
+            return new PendingTaskEvent(
+                PendingTaskEventKind.ValueChanged,
+                taskId,
+                0,
+                previousValue,
+                currentValue,
+                default,
+                default);
+        }
+
+        public static PendingTaskEvent StageStateChanged(
+            int taskId,
+            int stageIndex,
+            TaskState previousState,
+            TaskState currentState)
+        {
+            return new PendingTaskEvent(
+                PendingTaskEventKind.StageStateChanged,
+                taskId,
+                stageIndex,
+                0,
+                0,
+                previousState,
+                currentState);
+        }
+
+        public static PendingTaskEvent CollectionReplaced()
+        {
+            return new PendingTaskEvent(
+                PendingTaskEventKind.CollectionReplaced,
+                0,
+                0,
+                0,
+                0,
+                default,
+                default);
+        }
     }
 }
